@@ -2,7 +2,7 @@ import typer
 import subprocess
 from rich.console import Console
 from rich.markdown import Markdown
-from rich.prompt import Confirm
+from rich.prompt import Confirm, Prompt
 from src.core.llm_client import OmniEngine
 from src.utils.file_reader import read_context
 
@@ -39,6 +39,56 @@ def ask(
     console.print("\n")
     console.print(Markdown(response))
     console.print("\n[dim]-- OmniEngine Executed --[/dim]\n")
+
+@app.command()
+def chat(
+    sys: str = typer.Option(
+        "Kamu adalah Senior Software Engineer.",
+        "--sys",
+        "-s",
+        help="Persona AI"
+    ),
+    file: str = typer.Option(
+        None,
+        "--file",
+        "-f",
+        help="Path ke file/folder sebagai konteks awal"
+    )
+):
+    """(Interactive) Mulai sesi obrolan yang mengingat konteks."""
+    console.print("[bold green]💬 Memulai sesi obrolan dengan Omni... (Ketik 'exit' atau 'quit' untuk berhenti)[/bold green]")
+
+    try:
+        chat_session = engine.start_chat_session(system_instruction=sys)
+
+        if file:
+            console.print(f"[dim]Membaca konteks awal dari: {file}...[/dim]")
+            initial_context = read_context(file)
+            with console.status("[bold cyan]🧠 Omni sedang mempelajari codebase-mu...", spinner="bouncingBar"):
+                chat_session.send_message(
+                    f"Ini adalah konteks codebase-ku:\n{initial_context}\n\n"
+                    "Pahami kode di atas. Jangan beri saran apa-apa dulu, cukup katakan: 'Konteks dipahami, saya siap berdiskusi!'"
+                )
+            console.print("[bold cyan]Omni:[/bold cyan] Konteks dipahami, saya siap berdiskusi!\n")
+
+        while True:
+            user_input = Prompt.ask("[bold yellow]Kamu[/bold yellow]")
+            if user_input.lower() in ["exit", "quit"]:
+                console.print("[dim]Sesi obrolan diakhiri. Selamat beristirahat, Komandan![/dim]")
+                break
+
+            if not user_input.strip():
+                continue
+
+            with console.status("[bold cyan]🧠 Omni mengetik...", spinner="dots"):
+                response = chat_session.send_message(user_input)
+
+            console.print("\n[bold cyan]Omni:[/bold cyan]")
+            console.print(Markdown(response.text))
+            console.print("")
+
+    except Exception as e:
+        console.print(f"[bold red]❌ Terjadi kesalahan: {str(e)}[/bold red]")
 
 @app.command()
 def commit():

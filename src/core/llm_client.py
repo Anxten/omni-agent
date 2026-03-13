@@ -15,7 +15,8 @@ class OmniEngine:
         genai.configure(api_key=settings.GEMINI_API_KEY)
         
         # Kita menggunakan 2.5-flash karena gratis, cepat, dan punya context window 1M token
-        self.model = genai.GenerativeModel('gemini-2.5-flash')
+        self.model_name = "gemini-2.5-flash"
+        self.model = genai.GenerativeModel(self.model_name)
 
     def generate_response(self, prompt: str, system_instruction: str = None) -> str:
         """
@@ -29,16 +30,28 @@ class OmniEngine:
             str: Jawaban dari Gemini AI.
         """
         try:
-            # Menggabungkan instruksi sistem (jika ada) dengan prompt utama
-            full_prompt = prompt
             if system_instruction:
-                full_prompt = f"System Instruction:\n{system_instruction}\n\nUser Input:\n{prompt}"
-                
-            response = self.model.generate_content(full_prompt)
+                model = genai.GenerativeModel(self.model_name, system_instruction=system_instruction)
+            else:
+                model = self.model
+
+            response = model.generate_content(prompt)
             return response.text
             
         except Exception as e:
             return f"❌ Terjadi kesalahan saat menghubungi Gemini API: {str(e)}"
+
+    def start_chat_session(self, system_instruction: str = None):
+        """Memulai sesi obrolan interaktif yang mengingat riwayat percakapan."""
+        try:
+            if system_instruction:
+                model = genai.GenerativeModel(self.model_name, system_instruction=system_instruction)
+            else:
+                model = self.model
+
+            return model.start_chat(history=[])
+        except Exception as e:
+            raise Exception(f"Gagal memulai sesi chat: {str(e)}")
 
 # Opsional: Uji coba kecil jika file ini dijalankan langsung
 if __name__ == "__main__":
