@@ -6,6 +6,15 @@ ALLOWED_EXTENSIONS = {'.py', '.md', '.txt', '.env.example', '.json', '.yaml', '.
 # Folder yang pantang untuk dibaca (karena berat & tidak relevan)
 IGNORED_DIRS = {'.git', '__pycache__', 'venv', 'env', '.vscode', '.idea', 'node_modules'}
 
+IMAGE_EXTENSIONS = {
+    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico', '.tiff', '.tif', '.heic', '.avif'
+}
+
+BINARY_EXTENSIONS = {
+    '.pdf', '.zip', '.tar', '.gz', '.7z', '.rar', '.exe', '.dll', '.so', '.dylib',
+    '.class', '.jar', '.pyc', '.pyo', '.db', '.sqlite', '.sqlite3', '.bin'
+}
+
 
 def is_text_file(filepath: str) -> bool:
     """Mengecek apakah file aman untuk dibaca berdasarkan ekstensinya."""
@@ -21,6 +30,64 @@ def _read_single_file(filepath: str) -> str:
             return f"\n--- File: {filepath} ---\n```\n{content}\n```\n"
     except Exception as e:
         return f"\n[Warning: Gagal membaca file {filepath}: {str(e)}]\n"
+
+
+def _is_ignored_directory(dirname: str) -> bool:
+    return dirname in IGNORED_DIRS
+
+
+def _looks_binary(filepath: str) -> bool:
+    try:
+        with open(filepath, 'rb') as f:
+            chunk = f.read(2048)
+        if b'\x00' in chunk:
+            return True
+        return False
+    except Exception:
+        return True
+
+
+def _is_allowed_code_file(filepath: str) -> bool:
+    _, ext = os.path.splitext(filepath)
+    lowered = ext.lower()
+
+    if lowered in IMAGE_EXTENSIONS or lowered in BINARY_EXTENSIONS:
+        return False
+
+    return not _looks_binary(filepath)
+
+
+def read_codebase_for_docs(path: str) -> str:
+    """
+    Membaca seluruh isi file kode/teks dari direktori secara rekursif untuk kebutuhan dokumentasi.
+    Wajib mengabaikan folder seperti .git, node_modules, venv, __pycache__, dan file biner/gambar.
+    """
+    if not os.path.exists(path):
+        return f"[System Error: Path '{path}' tidak ditemukan.]"
+
+    if os.path.isfile(path):
+        if not _is_allowed_code_file(path):
+            return f"[System Error: '{path}' termasuk file biner/gambar atau tidak dapat dibaca.]"
+        return _read_single_file(path)
+
+    aggregated_content = [f"--- START DOC CONTEXT DIRECTORY: {path} ---"]
+    file_count = 0
+
+    for root, dirs, files in os.walk(path):
+        dirs[:] = [d for d in dirs if not _is_ignored_directory(d)]
+
+        for file in files:
+            filepath = os.path.join(root, file)
+            if _is_allowed_code_file(filepath):
+                aggregated_content.append(_read_single_file(filepath))
+                file_count += 1
+
+    aggregated_content.append(f"--- END DOC CONTEXT DIRECTORY ({file_count} files read) ---")
+
+    if file_count == 0:
+        return f"[System Error: Tidak ada file kode/teks yang valid di folder '{path}'.]"
+
+    return "\n".join(aggregated_content)
 
 
 def read_context(path: str) -> str:

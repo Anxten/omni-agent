@@ -1,10 +1,11 @@
 import typer
 import subprocess
+import os
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.prompt import Confirm, Prompt
 from src.core.llm_client import OmniEngine
-from src.utils.file_reader import read_context
+from src.utils.file_reader import read_context, read_codebase_for_docs
 
 app = typer.Typer(help="⚡ Omni Agent - Zero-Cost Local AI CLI", no_args_is_help=True)
 console = Console()
@@ -122,7 +123,8 @@ def commit():
         "Pilihan Tipe HANYA: Feat, Fix, Chore, Refactor, Docs (Harus diawali huruf Kapital). "
         "JANGAN gunakan scope dalam kurung seperti feat(cli):. "
         "HANYA berikan 1 baris pesan judul (Title) saja. JANGAN berikan deskripsi panjang di bawahnya. "
-        "TANPA markdown, TANPA backtick, TANPA penjelasan."
+        "TANPA markdown, TANPA backtick, TANPA penjelasan. "
+        "ALWAYS write the final commit message in English, following the Conventional Commits standard, regardless of the language used in the code or git diff."
     )
 
     # Batasi teks diff agar tidak terlalu panjang (hemat token & waktu)
@@ -149,6 +151,44 @@ def commit():
             console.print("[bold green]🚀 Operasi Selesai. Energi berhasil dihemat![/bold green]")
     else:
         console.print("[dim]Operasi dibatalkan.[/dim]")
+
+
+@app.command()
+def doc(
+    path: str = typer.Argument(
+        ".",
+        help="Path direktori/file codebase yang ingin didokumentasikan (default: direktori saat ini)."
+    )
+):
+    """Generate dokumentasi codebase otomatis dan simpan ke OMNI_DOCS.md."""
+    console.print(f"[dim]Mengumpulkan konten codebase dari: {path}...[/dim]")
+    combined_code = read_codebase_for_docs(path)
+
+    if combined_code.startswith("[System Error:"):
+        console.print(f"[bold red]❌ {combined_code}[/bold red]")
+        raise typer.Exit()
+
+    sys_prompt = (
+        "Kamu adalah Senior Technical Writer. Analisis codebase ini dan hasilkan 3 bagian: "
+        "[BAGIAN 1: README.md] berisi deskripsi, tech stack, dan cara instalasi. "
+        "[BAGIAN 2: API DOCS/FUNGSI] berisi tabel endpoint atau penjelasan fungsi utama. "
+        "[BAGIAN 3: MERMAID.JS] berisi kode block ```mermaid untuk arsitektur/flowchart sistem. "
+        "Jangan berikan teks basa-basi."
+    )
+
+    prompt = (
+        "Berikut adalah gabungan isi codebase. Hasilkan dokumen sesuai format yang diminta pada system prompt.\n\n"
+        f"{combined_code}"
+    )
+
+    with console.status("[bold cyan]🧠 Omni sedang menyusun dokumentasi project...", spinner="bouncingBar"):
+        docs_output = engine.generate_response(prompt, system_instruction=sys_prompt)
+
+    output_path = os.path.join(os.getcwd(), "OMNI_DOCS.md")
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(docs_output)
+
+    console.print(f"[bold green]✅ Dokumentasi berhasil dibuat di: {output_path}[/bold green]")
 
 if __name__ == "__main__":
     app()

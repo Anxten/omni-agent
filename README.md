@@ -16,5 +16,11 @@ Omni adalah *AI-powered CLI tool* lokal yang menjembatani repositori kode dengan
 ## 🚀 Quick Start
 *(Bagian ini akan kita isi setelah MVP selesai dibangun)*
 
+## 🧩 CLI Commands
+* `ask` — Tanya ke Gemini dengan opsi konteks file/folder.
+* `chat` — Sesi interaktif dengan memori percakapan.
+* `commit` — Generate pesan commit dari `git diff`.
+* `doc [path]` — Generate dokumentasi otomatis dari codebase dan simpan ke `OMNI_DOCS.md`.
+
 ---
 *Built for absolute efficiency. Code is the new leverage.*
