@@ -18,6 +18,9 @@ BINARY_EXTENSIONS = {
 
 def is_text_file(filepath: str) -> bool:
     """Mengecek apakah file aman untuk dibaca berdasarkan ekstensinya."""
+    if _is_sensitive_env_file(filepath):
+        return False
+
     _, ext = os.path.splitext(filepath)
     return ext.lower() in ALLOWED_EXTENSIONS
 
@@ -36,6 +39,12 @@ def _is_ignored_directory(dirname: str) -> bool:
     return dirname in IGNORED_DIRS
 
 
+def _is_sensitive_env_file(filepath: str) -> bool:
+    filename = os.path.basename(filepath).lower()
+    # Memblokir: .env, prod.env, .env.local, .env.development, dll.
+    return '.env' in filename
+
+
 def _looks_binary(filepath: str) -> bool:
     try:
         with open(filepath, 'rb') as f:
@@ -48,6 +57,9 @@ def _looks_binary(filepath: str) -> bool:
 
 
 def _is_allowed_code_file(filepath: str) -> bool:
+    if _is_sensitive_env_file(filepath):
+        return False
+
     _, ext = os.path.splitext(filepath)
     lowered = ext.lower()
 

@@ -48,7 +48,7 @@ Ikuti langkah-langkah berikut untuk menginstal dan menjalankan Project Omni:
     *   Salin isi dari `.env.example` ke `.env` dan ganti `your_api_key_here` dengan Google Gemini API Key Anda. Anda bisa mendapatkannya dari [Google AI Studio](https://makersuite.google.com/k/api_key).
     ```dotenv
     # .env
-    GEMINI_API_KEY=AIzaSyAlzgxy0IJALlZ3va-nSPp9d1QBiaKx0sA # Ganti dengan API Key Anda
+    GEMINI_API_KEY=YOUR_API_KEY_HERE # Ganti dengan API Key Anda
     ```
     *   **Penting:** Jangan pernah meng-commit file `.env` ke repository Anda. `.gitignore` sudah dikonfigurasi untuk mengabaikannya.
 
