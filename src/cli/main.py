@@ -209,6 +209,13 @@ def commit():
         if not is_staged:
             console.print("[dim]Melakukan 'git add .' secara otomatis...[/dim]")
             subprocess.run(["git", "add", "."])
+        else:
+            # Check if there are also unstaged changes that weren't included
+            unstaged = subprocess.run(["git", "diff", "--name-only"], capture_output=True, text=True).stdout.strip()
+            if unstaged:
+                console.print(f"[bold yellow]⚠️  Ada file yang belum di-stage:[/bold yellow] {unstaged.replace(chr(10), ', ')}")
+                if Confirm.ask("Tambahkan semua perubahan yang belum di-stage juga?"):
+                    subprocess.run(["git", "add", "."])
             
         subprocess.run(["git", "commit", "-m", commit_msg])
         console.print("[bold green]✅ Kode berhasil di-commit![/bold green]")

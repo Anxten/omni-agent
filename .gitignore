@@ -1,3 +1,6 @@
+# Ignore audit debug files
+OMNI_AUDIT_chunk_*.raw.txt
+
 # Environments
 venv/
 env/
