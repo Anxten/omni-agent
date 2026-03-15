@@ -2,6 +2,7 @@ import typer
 import subprocess
 import os
 import json
+from datetime import datetime
 from rich import box
 from rich.console import Console
 from rich.markdown import Markdown
@@ -81,6 +82,77 @@ def _build_summary_from_findings(findings: list[dict]) -> dict:
         "medium_count": medium_count,
         "low_count": low_count,
     }
+
+
+def export_audit_to_markdown(audit_data: dict, output_path: str) -> None:
+    """Generate formal B2B executive security report in Markdown format."""
+    summary = audit_data.get("audit_summary", {})
+    findings = audit_data.get("findings", [])
+
+    severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+    sorted_findings = sorted(
+        findings,
+        key=lambda finding: severity_order.get(str(finding.get("severity", "LOW")).upper(), 99)
+    )
+
+    generated_on = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    lines = [
+        "# Executive Security Audit Report",
+        "",
+        f"Generated on: {generated_on}",
+        "",
+        "## 1. Executive Summary",
+        "",
+        "This report provides a formal overview of the current application security posture based on the automated static analysis execution.",
+        "",
+        "| Metric | Value |",
+        "|---|---:|",
+        f"| Total Vulnerabilities | {summary.get('total_vulnerabilities', 0)} |",
+        f"| Critical | {summary.get('critical_count', 0)} |",
+        f"| High | {summary.get('high_count', 0)} |",
+        f"| Medium | {summary.get('medium_count', 0)} |",
+        f"| Low | {summary.get('low_count', 0)} |",
+        "",
+        "## 2. Methodology",
+        "",
+        "The assessment was performed using an Automated SAST Engine aligned with OWASP Top 10 security principles to identify, categorize, and prioritize application-level risks.",
+        "",
+        "## 3. Detailed Findings",
+        "",
+    ]
+
+    if not sorted_findings:
+        lines.extend([
+            "No vulnerabilities were identified during this assessment.",
+            "",
+        ])
+    else:
+        for finding in sorted_findings:
+            severity = str(finding.get("severity", "LOW")).upper()
+            vuln_type = str(finding.get("vulnerability_type", "Unknown Vulnerability"))
+            file_path = str(finding.get("file_path", "-"))
+            location = str(finding.get("line_number_or_function", "-"))
+            description = str(finding.get("description", "-"))
+            remediation = str(finding.get("remediation_code", "-"))
+
+            lines.extend([
+                f"### [{severity}] {vuln_type}",
+                "",
+                f"Location: {file_path} (Line: {location})",
+                "",
+                "Description:",
+                description,
+                "",
+                "Remediation:",
+                remediation,
+                "",
+                "---",
+                "",
+            ])
+
+    with open(output_path, "w", encoding="utf-8") as markdown_file:
+        markdown_file.write("\n".join(lines).strip() + "\n")
 
 
 def _truncate_path(path: str, max_len: int = 30) -> str:
@@ -287,7 +359,7 @@ def audit(
     path: str = typer.Argument(
         ".",
         help="Path direktori/file codebase yang ingin diaudit (default: direktori saat ini)."
-    )
+    ),
 ):
     """Jalankan audit keamanan SAST berbasis OWASP dan simpan hasil ke OMNI_AUDIT.json."""
     console.print(f"[dim]Mengumpulkan konteks codebase untuk audit dari: {path}...[/dim]")
@@ -336,6 +408,9 @@ def audit(
     output_path = os.path.join(os.getcwd(), "OMNI_AUDIT.json")
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(audit_data, f, ensure_ascii=False, indent=2)
+
+    markdown_output_path = os.path.join(os.getcwd(), "OMNI_SECURITY_REPORT.md")
+    export_audit_to_markdown(audit_data, markdown_output_path)
 
     summary = audit_data.get("audit_summary", {})
     findings = audit_data.get("findings", [])
@@ -435,7 +510,7 @@ def audit(
     console.print(findings_table)
     console.print()
     console.print(Rule(style="dim"))
-    console.print(f"[dim]  Full report saved → [bold]{output_path}[/bold][/dim]")
+    console.print("[dim] Output saved → OMNI_AUDIT.json & OMNI_SECURITY_REPORT.md[/dim]")
     console.print()
 
 if __name__ == "__main__":
