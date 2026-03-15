@@ -2,10 +2,13 @@ import typer
 import subprocess
 import os
 import json
+from rich import box
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.prompt import Confirm, Prompt
+from rich.rule import Rule
 from rich.table import Table
+from rich.text import Text
 from src.core.llm_client import OmniEngine
 from src.utils.file_reader import read_context, read_codebase_for_docs
 
@@ -78,6 +81,19 @@ def _build_summary_from_findings(findings: list[dict]) -> dict:
         "medium_count": medium_count,
         "low_count": low_count,
     }
+
+
+def _truncate_path(path: str, max_len: int = 30) -> str:
+    """Shorten a file path from the front if it exceeds max_len, e.g. '…/cli/main.py'."""
+    if len(path) <= max_len:
+        return path
+    parts = path.replace("\\", "/").split("/")
+    for n in [3, 2, 1]:
+        candidate = "…/" + "/".join(parts[-n:])
+        if len(candidate) <= max_len:
+            return candidate
+    return "…" + path[-(max_len - 1):]
+
 
 @app.command()
 def ask(
@@ -324,42 +340,103 @@ def audit(
     summary = audit_data.get("audit_summary", {})
     findings = audit_data.get("findings", [])
 
-    summary_table = Table(title="SECURITY AUDIT REPORT", show_header=True, header_style="bold cyan")
-    summary_table.add_column("Metric", style="bold")
-    summary_table.add_column("Value", justify="right")
-    summary_table.add_row("Total Vulnerabilities", str(summary.get("total_vulnerabilities", 0)))
-    summary_table.add_row("Critical", str(summary.get("critical_count", 0)), style="bold red")
-    summary_table.add_row("High", str(summary.get("high_count", 0)), style="orange3")
-    summary_table.add_row("Medium", str(summary.get("medium_count", 0)), style="yellow")
-    summary_table.add_row("Low", str(summary.get("low_count", 0)), style="green")
+    total = summary.get("total_vulnerabilities", 0)
+    crit  = summary.get("critical_count", 0)
+    high  = summary.get("high_count", 0)
+    med   = summary.get("medium_count", 0)
+    low   = summary.get("low_count", 0)
+
+    # ── Header ──────────────────────────────────────────────────────────────
+    console.print()
+    console.print(Rule("[bold cyan]  OMNI SECURITY AUDIT REPORT  [/bold cyan]", style="bold cyan"))
+    console.print()
+
+    # ── Summary Table ───────────────────────────────────────────────────────
+    if crit > 0:
+        risk_label = Text("  ⚠  CRITICAL RISK  ", style="bold white on red")
+    elif high > 0:
+        risk_label = Text("  ▲  HIGH RISK      ", style="bold white on dark_orange")
+    elif med > 0:
+        risk_label = Text("  ◆  MODERATE RISK  ", style="bold black on yellow")
+    else:
+        risk_label = Text("  ✔  LOW RISK       ", style="bold black on green")
+
+    summary_table = Table(
+        box=box.ROUNDED,
+        show_header=False,
+        border_style="cyan",
+        padding=(0, 2),
+        expand=False,
+    )
+    summary_table.add_column("Metric", style="dim", width=24)
+    summary_table.add_column("Value", justify="right", min_width=20)
+    summary_table.add_row("Risk Level", risk_label)
+    summary_table.add_row("Total Vulnerabilities", Text(str(total), style="bold white"))
+    summary_table.add_row("● Critical", Text(str(crit), style="bold red"))
+    summary_table.add_row("● High",     Text(str(high), style="bold dark_orange"))
+    summary_table.add_row("● Medium",   Text(str(med),  style="bold yellow"))
+    summary_table.add_row("● Low",      Text(str(low),  style="bold green"))
     console.print(summary_table)
+    console.print()
 
-    findings_table = Table(show_header=True, header_style="bold magenta")
-    findings_table.add_column("Severity", width=10)
-    findings_table.add_column("Type", width=24)
-    findings_table.add_column("File", width=32)
-    findings_table.add_column("Location", width=20)
-    findings_table.add_column("Description", width=52)
-    findings_table.add_column("Remediation Code", width=52)
+    # ── Findings Table ───────────────────────────────────────────────────────
+    _severity_badge_map = {
+        "CRITICAL": Text(" CRITICAL ", style="bold white on red"),
+        "HIGH":     Text("  HIGH    ", style="bold white on dark_orange"),
+        "MEDIUM":   Text(" MEDIUM   ", style="bold black on yellow"),
+        "LOW":      Text("  LOW     ", style="bold black on green"),
+    }
+    _severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
-    if findings:
-        for finding in findings:
+    findings_table = Table(
+        box=box.HEAVY_HEAD,
+        show_header=True,
+        header_style="bold white on grey23",
+        show_lines=True,
+        expand=True,
+        border_style="dim",
+        padding=(0, 1),
+    )
+    findings_table.add_column("#",           width=4,  justify="right", no_wrap=True, style="dim")
+    findings_table.add_column("SEVERITY",    width=11, no_wrap=True)
+    findings_table.add_column("TYPE",        width=24, no_wrap=False, overflow="fold")
+    findings_table.add_column("LOCATION",    width=30, no_wrap=False, overflow="fold")
+    findings_table.add_column("DESCRIPTION", ratio=3,  no_wrap=False)
+    findings_table.add_column("REMEDIATION", ratio=4,  no_wrap=False)
+
+    sorted_findings = sorted(
+        findings,
+        key=lambda f: _severity_order.get(str(f.get("severity", "LOW")).upper(), 99)
+    )
+
+    if sorted_findings:
+        for idx, finding in enumerate(sorted_findings, start=1):
             severity = str(finding.get("severity", "LOW")).upper()
-            row_style = _severity_style(severity)
+            badge = _severity_badge_map.get(severity, Text(severity, style="white"))
+
+            short_path = _truncate_path(str(finding.get("file_path", "-")), 26)
+            location   = str(finding.get("line_number_or_function", "-"))
+            loc_text   = Text()
+            loc_text.append(short_path)
+            loc_text.append("\n")
+            loc_text.append(location, style="dim")
+
             findings_table.add_row(
-                severity,
+                str(idx),
+                badge,
                 str(finding.get("vulnerability_type", "-")),
-                str(finding.get("file_path", "-")),
-                str(finding.get("line_number_or_function", "-")),
+                loc_text,
                 str(finding.get("description", "-")),
                 str(finding.get("remediation_code", "-")),
-                style=row_style
             )
     else:
-        findings_table.add_row("-", "No vulnerabilities found", "-", "-", "-", "-", style="green")
+        findings_table.add_row("-", Text("  CLEAN   ", style="bold black on green"), "No vulnerabilities found", "-", "-", "-")
 
     console.print(findings_table)
-    console.print(f"[bold green]✅ Raw audit berhasil disimpan di: {output_path}[/bold green]")
+    console.print()
+    console.print(Rule(style="dim"))
+    console.print(f"[dim]  Full report saved → [bold]{output_path}[/bold][/dim]")
+    console.print()
 
 if __name__ == "__main__":
     app()
