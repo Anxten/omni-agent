@@ -1,15 +1,83 @@
 import typer
 import subprocess
 import os
+import json
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.prompt import Confirm, Prompt
+from rich.table import Table
 from src.core.llm_client import OmniEngine
 from src.utils.file_reader import read_context, read_codebase_for_docs
 
 app = typer.Typer(help="⚡ Omni Agent - Zero-Cost Local AI CLI", no_args_is_help=True)
 console = Console()
 engine = OmniEngine()
+
+
+def _extract_json_payload(raw_text: str) -> dict:
+    """Parse JSON ketat dengan fallback ekstraksi objek JSON terbesar dari response LLM."""
+    stripped = raw_text.strip()
+
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        stripped = "\n".join(lines).strip()
+
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        start_index = stripped.find("{")
+        if start_index == -1:
+            raise
+        candidate = stripped[start_index:]
+        decoder = json.JSONDecoder()
+        parsed, _ = decoder.raw_decode(candidate)
+        return parsed
+
+
+def _severity_style(severity: str) -> str:
+    mapping = {
+        "CRITICAL": "bold red",
+        "HIGH": "orange3",
+        "MEDIUM": "yellow",
+        "LOW": "green"
+    }
+    return mapping.get((severity or "").upper(), "white")
+
+
+def _is_token_limit_error(raw_text: str) -> bool:
+    lowered = (raw_text or "").lower()
+    is_api_error = lowered.startswith("❌") or lowered.startswith("error")
+    return is_api_error and "token" in lowered and ("limit" in lowered or "exceed" in lowered)
+
+
+def _build_summary_from_findings(findings: list[dict]) -> dict:
+    critical_count = 0
+    high_count = 0
+    medium_count = 0
+    low_count = 0
+
+    for finding in findings:
+        severity = str(finding.get("severity", "")).upper()
+        if severity == "CRITICAL":
+            critical_count += 1
+        elif severity == "HIGH":
+            high_count += 1
+        elif severity == "MEDIUM":
+            medium_count += 1
+        elif severity == "LOW":
+            low_count += 1
+
+    return {
+        "total_vulnerabilities": len(findings),
+        "critical_count": critical_count,
+        "high_count": high_count,
+        "medium_count": medium_count,
+        "low_count": low_count,
+    }
 
 @app.command()
 def ask(
@@ -189,6 +257,102 @@ def doc(
         f.write(docs_output)
 
     console.print(f"[bold green]✅ Dokumentasi berhasil dibuat di: {output_path}[/bold green]")
+
+
+@app.command()
+def audit(
+    path: str = typer.Argument(
+        ".",
+        help="Path direktori/file codebase yang ingin diaudit (default: direktori saat ini)."
+    )
+):
+    """Jalankan audit keamanan SAST berbasis OWASP dan simpan hasil ke OMNI_AUDIT.json."""
+    console.print(f"[dim]Mengumpulkan konteks codebase untuk audit dari: {path}...[/dim]")
+    code_context = read_codebase_for_docs(path)
+
+    if code_context.startswith("[System Error:"):
+        console.print(f"[bold red]❌ {code_context}[/bold red]")
+        raise typer.Exit()
+
+    chunk_size = 60_000
+    chunks = [code_context[i:i + chunk_size] for i in range(0, len(code_context), chunk_size)]
+    all_findings: list[dict] = []
+
+    with console.status("[bold cyan]🛡️ Omni sedang menjalankan SAST audit...", spinner="bouncingBar"):
+        for index, chunk in enumerate(chunks, start=1):
+            raw_audit = engine.generate_security_audit(chunk)
+
+            if _is_token_limit_error(raw_audit):
+                console.print(
+                    f"[bold red]❌ Chunk audit ke-{index} masih melebihi batas token model.[/bold red]"
+                )
+                console.print("[yellow]Coba audit pada subfolder lebih kecil, misalnya: omni audit src/[/yellow]")
+                raise typer.Exit(code=1)
+
+            try:
+                parsed = _extract_json_payload(raw_audit)
+            except json.JSONDecodeError:
+                debug_path = os.path.join(os.getcwd(), f"OMNI_AUDIT_chunk_{index}.raw.txt")
+                with open(debug_path, "w", encoding="utf-8") as f:
+                    f.write(raw_audit)
+                console.print(
+                    f"[bold red]❌ Response chunk audit ke-{index} bukan JSON valid.[/bold red]"
+                )
+                console.print(f"[yellow]Raw chunk disimpan di: {debug_path}[/yellow]")
+                raise typer.Exit(code=1)
+
+            findings = parsed.get("findings", [])
+            if isinstance(findings, list):
+                all_findings.extend(findings)
+
+    audit_data = {
+        "audit_summary": _build_summary_from_findings(all_findings),
+        "findings": all_findings,
+    }
+
+    output_path = os.path.join(os.getcwd(), "OMNI_AUDIT.json")
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(audit_data, f, ensure_ascii=False, indent=2)
+
+    summary = audit_data.get("audit_summary", {})
+    findings = audit_data.get("findings", [])
+
+    summary_table = Table(title="SECURITY AUDIT REPORT", show_header=True, header_style="bold cyan")
+    summary_table.add_column("Metric", style="bold")
+    summary_table.add_column("Value", justify="right")
+    summary_table.add_row("Total Vulnerabilities", str(summary.get("total_vulnerabilities", 0)))
+    summary_table.add_row("Critical", str(summary.get("critical_count", 0)), style="bold red")
+    summary_table.add_row("High", str(summary.get("high_count", 0)), style="orange3")
+    summary_table.add_row("Medium", str(summary.get("medium_count", 0)), style="yellow")
+    summary_table.add_row("Low", str(summary.get("low_count", 0)), style="green")
+    console.print(summary_table)
+
+    findings_table = Table(show_header=True, header_style="bold magenta")
+    findings_table.add_column("Severity", width=10)
+    findings_table.add_column("Type", width=24)
+    findings_table.add_column("File", width=32)
+    findings_table.add_column("Location", width=20)
+    findings_table.add_column("Description", width=52)
+    findings_table.add_column("Remediation Code", width=52)
+
+    if findings:
+        for finding in findings:
+            severity = str(finding.get("severity", "LOW")).upper()
+            row_style = _severity_style(severity)
+            findings_table.add_row(
+                severity,
+                str(finding.get("vulnerability_type", "-")),
+                str(finding.get("file_path", "-")),
+                str(finding.get("line_number_or_function", "-")),
+                str(finding.get("description", "-")),
+                str(finding.get("remediation_code", "-")),
+                style=row_style
+            )
+    else:
+        findings_table.add_row("-", "No vulnerabilities found", "-", "-", "-", "-", style="green")
+
+    console.print(findings_table)
+    console.print(f"[bold green]✅ Raw audit berhasil disimpan di: {output_path}[/bold green]")
 
 if __name__ == "__main__":
     app()
