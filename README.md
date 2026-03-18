@@ -27,7 +27,12 @@ Each audit run automatically generates:
   - Methodology (Automated SAST Engine aligned with OWASP Top 10)
   - Detailed Findings (severity-sorted with remediation guidance)
 
-## 📦 Installation
+## �️ Recent Security Research
+- **Liquid Collective (RedeemManagerV1):** Identified High-severity reentrancy exposure in ETH claiming loops. (Report disclosed to Alluvial/Galaxy Digital on March 18, 2026).
+
+---
+
+## �📦 Installation
 ### 1) Clone Repository
 ```bash
 git clone https://github.com/Anxten/omni-agent.git
