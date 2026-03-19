@@ -11,7 +11,7 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 from src.core.llm_client import OmniEngine
-from src.utils.file_reader import read_context, read_codebase_for_docs
+from src.utils.file_reader import read_context, read_codebase_for_docs, read_codebase_for_audit_single_batch
 
 app = typer.Typer(help="⚡ Omni Agent - Zero-Cost Local AI CLI", no_args_is_help=True)
 console = Console()
@@ -363,46 +363,50 @@ def audit(
 ):
     """Jalankan audit keamanan SAST berbasis OWASP dan simpan hasil ke OMNI_AUDIT.json."""
     console.print(f"[dim]Mengumpulkan konteks codebase untuk audit dari: {path}...[/dim]")
-    code_context = read_codebase_for_docs(path)
+    code_context = read_codebase_for_audit_single_batch(path)
 
     if code_context.startswith("[System Error:"):
         console.print(f"[bold red]❌ {code_context}[/bold red]")
         raise typer.Exit()
 
-    chunk_size = 60_000
-    chunks = [code_context[i:i + chunk_size] for i in range(0, len(code_context), chunk_size)]
-    all_findings: list[dict] = []
-
     with console.status("[bold cyan]🛡️ Omni sedang menjalankan SAST audit...", spinner="bouncingBar"):
-        for index, chunk in enumerate(chunks, start=1):
-            raw_audit = engine.generate_security_audit(chunk)
+        raw_audit = engine.generate_security_audit(code_context)
 
-            if _is_token_limit_error(raw_audit):
-                console.print(
-                    f"[bold red]❌ Chunk audit ke-{index} masih melebihi batas token model.[/bold red]"
-                )
-                console.print("[yellow]Coba audit pada subfolder lebih kecil, misalnya: omni audit src/[/yellow]")
-                raise typer.Exit(code=1)
+        if _is_token_limit_error(raw_audit):
+            console.print("[bold red]❌ Audit single-shot melebihi batas token model.[/bold red]")
+            console.print("[yellow]Coba audit pada subfolder lebih kecil, misalnya: omni audit src/[/yellow]")
+            raise typer.Exit(code=1)
 
-            try:
-                parsed = _extract_json_payload(raw_audit)
-            except json.JSONDecodeError:
-                debug_path = os.path.join(os.getcwd(), f"OMNI_AUDIT_chunk_{index}.raw.txt")
-                with open(debug_path, "w", encoding="utf-8") as f:
-                    f.write(raw_audit)
-                console.print(
-                    f"[bold red]❌ Response chunk audit ke-{index} bukan JSON valid.[/bold red]"
-                )
-                console.print(f"[yellow]Raw chunk disimpan di: {debug_path}[/yellow]")
-                raise typer.Exit(code=1)
+        try:
+            parsed = _extract_json_payload(raw_audit)
+        except json.JSONDecodeError:
+            debug_path = os.path.join(os.getcwd(), "OMNI_AUDIT.raw.txt")
+            with open(debug_path, "w", encoding="utf-8") as f:
+                f.write(raw_audit)
+            console.print("[bold red]❌ Response audit bukan JSON valid.[/bold red]")
+            console.print(f"[yellow]Raw response disimpan di: {debug_path}[/yellow]")
+            raise typer.Exit(code=1)
 
-            findings = parsed.get("findings", [])
-            if isinstance(findings, list):
-                all_findings.extend(findings)
+    findings = parsed.get("findings", [])
+    if not isinstance(findings, list):
+        findings = []
+
+    generated_summary = _build_summary_from_findings(findings)
+    parsed_summary = parsed.get("audit_summary", {})
+    if not isinstance(parsed_summary, dict):
+        parsed_summary = {}
+
+    audit_summary = {
+        "total_vulnerabilities": parsed_summary.get("total_vulnerabilities", generated_summary["total_vulnerabilities"]),
+        "critical_count": parsed_summary.get("critical_count", generated_summary["critical_count"]),
+        "high_count": parsed_summary.get("high_count", generated_summary["high_count"]),
+        "medium_count": parsed_summary.get("medium_count", generated_summary["medium_count"]),
+        "low_count": parsed_summary.get("low_count", generated_summary["low_count"]),
+    }
 
     audit_data = {
-        "audit_summary": _build_summary_from_findings(all_findings),
-        "findings": all_findings,
+        "audit_summary": audit_summary,
+        "findings": findings,
     }
 
     output_path = os.path.join(os.getcwd(), "OMNI_AUDIT.json")
