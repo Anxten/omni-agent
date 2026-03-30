@@ -10,12 +10,16 @@ from rich.prompt import Confirm, Prompt
 from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
+from rich.panel import Panel
+
 from src.core.llm_client import OmniEngine
+from src.core.orchestrator import AgentOrchestrator
 from src.utils.file_reader import read_context, read_codebase_for_docs, read_codebase_for_audit_single_batch
 
-app = typer.Typer(help="⚡ Omni Agent - Zero-Cost Local AI CLI", no_args_is_help=True)
+app = typer.Typer(help="⚡ Omni Orchestrator - Multi-Agent AI Platform", no_args_is_help=True)
 console = Console()
 engine = OmniEngine()
+orchestrator = AgentOrchestrator()
 
 
 def _extract_json_payload(raw_text: str) -> dict:
@@ -56,6 +60,161 @@ def _is_token_limit_error(raw_text: str) -> bool:
     lowered = (raw_text or "").lower()
     is_api_error = lowered.startswith("❌") or lowered.startswith("error")
     return is_api_error and "token" in lowered and ("limit" in lowered or "exceed" in lowered)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ORCHESTRATOR COMMANDS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.command()
+def agents(
+    agent_name: str = typer.Option(None, "--name", "-n", help="Show details for specific agent"),
+):
+    """List all available specialist agents and their capabilities."""
+    if agent_name:
+        details = orchestrator.get_agent_details(agent_name)
+        if not details:
+            console.print(f"[bold red]❌ Agent '{agent_name}' not found[/bold red]")
+            raise typer.Exit(code=1)
+        
+        console.print()
+        console.print(Panel(
+            f"[bold cyan]{details['name']}[/bold cyan]",
+            title="[bold]Agent Details[/bold]",
+            border_style="cyan"
+        ))
+        console.print(f"\n[bold]Job Description:[/bold]\n{details['job_description']}")
+        console.print(f"\n[bold]Capabilities:[/bold]")
+        for cap in details['capabilities']:
+            console.print(f"  • {cap}")
+        return
+
+    # List all agents with summary
+    agent_list = orchestrator.list_agents()
+    console.print()
+    console.print(Rule("[bold cyan]  Available Specialist Agents  [/bold cyan]", style="bold cyan"))
+    console.print()
+
+    agents_table = Table(
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold white on blue",
+        border_style="cyan",
+        padding=(0, 1),
+    )
+    agents_table.add_column("Agent Name", style="bold yellow")
+    agents_table.add_column("Job Description", ratio=2)
+    agents_table.add_column("Capabilities", ratio=2, no_wrap=False)
+
+    for agent in agent_list:
+        caps = ", ".join(agent["capabilities"][:3])
+        if len(agent["capabilities"]) > 3:
+            caps += ", ..."
+        agents_table.add_row(agent["name"], agent["job_description"][:80], caps)
+
+    console.print(agents_table)
+    console.print("\n[dim]Use: omni agents --name 'Agent Name' for detailed information[/dim]\n")
+
+
+@app.command()
+def execute(
+    goal: str = typer.Argument(..., help="Your objective or goal for the AI"),
+    context: str = typer.Option(
+        ".",
+        "--context", "-c",
+        help="Path to file or directory for context (default: current directory)"
+    ),
+    agent: str = typer.Option(
+        None,
+        "--agent", "-a",
+        help="Force specific agent (optional, uses auto-routing if not specified)"
+    ),
+    output: str = typer.Option(
+        None,
+        "--output", "-o",
+        help="Save output to file (optional)"
+    ),
+):
+    """Execute a goal using the most appropriate specialist agent."""
+    console.print()
+    console.print(f"[dim]📋 Goal:[/dim] {goal}")
+    
+    # Gather context
+    console.print(f"[dim]Gathering context from: {context}...[/dim]")
+    code_context = read_context(context)
+    
+    if code_context.startswith("[System Error:"):
+        console.print(f"[bold red]❌ {code_context}[/bold red]")
+        raise typer.Exit(code=1)
+
+    # Route through orchestrator
+    with console.status("[bold cyan]🧠 Omni Orchestrator routing to specialist...", spinner="dots"):
+        result = orchestrator.route_goal(goal, code_context, force_agent=agent)
+
+    console.print()
+    
+    if result.get("status") == "error":
+        console.print(f"[bold red]❌ Error: {result.get('error')}[/bold red]")
+        if "available_agents" in result:
+            console.print(f"[dim]Available agents: {', '.join(result['available_agents'])}[/dim]")
+        raise typer.Exit(code=1)
+
+    # Display results based on agent type
+    agent_name = result.get("agent", "Unknown")
+    console.print(f"[bold green]✅ Executed by: {agent_name}[/bold green]\n")
+
+    if "result" in result:  # Security audit result
+        _display_audit_result(result["result"])
+    elif "documentation" in result:  # Documentation result
+        console.print(Markdown(result["documentation"]))
+    elif "generated_code" in result:  # Code generation result
+        console.print(Markdown(result["generated_code"]))
+
+    # Save output if requested
+    if output:
+        with open(output, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+        console.print(f"\n[bold green]✅ Output saved to: {output}[/bold green]")
+
+
+def _display_audit_result(audit_data: dict) -> None:
+    """Display security audit results in formatted table."""
+    summary = audit_data.get("audit_summary", {})
+    findings = audit_data.get("findings", [])
+
+    total = summary.get("total_vulnerabilities", 0)
+    crit  = summary.get("critical_count", 0)
+    high  = summary.get("high_count", 0)
+    med   = summary.get("medium_count", 0)
+    low   = summary.get("low_count", 0)
+
+    # Risk level
+    if crit > 0:
+        risk_label = Text("  ⚠  CRITICAL RISK  ", style="bold white on red")
+    elif high > 0:
+        risk_label = Text("  ▲  HIGH RISK      ", style="bold white on dark_orange")
+    elif med > 0:
+        risk_label = Text("  ◆  MODERATE RISK  ", style="bold black on yellow")
+    else:
+        risk_label = Text("  ✔  LOW RISK       ", style="bold black on green")
+
+    summary_table = Table(
+        box=box.ROUNDED,
+        show_header=False,
+        border_style="cyan",
+        padding=(0, 2),
+        expand=False,
+    )
+    summary_table.add_column("Metric", style="dim", width=24)
+    summary_table.add_column("Value", justify="right", min_width=20)
+    summary_table.add_row("Risk Level", risk_label)
+    summary_table.add_row("Total Vulnerabilities", Text(str(total), style="bold white"))
+    summary_table.add_row("● Critical", Text(str(crit), style="bold red"))
+    summary_table.add_row("● High",     Text(str(high), style="bold dark_orange"))
+    summary_table.add_row("● Medium",   Text(str(med),  style="bold yellow"))
+    summary_table.add_row("● Low",      Text(str(low),  style="bold green"))
+    console.print(summary_table)
+    console.print()
 
 
 def _build_summary_from_findings(findings: list[dict]) -> dict:
@@ -369,46 +528,26 @@ def audit(
         console.print(f"[bold red]❌ {code_context}[/bold red]")
         raise typer.Exit()
 
+    # Use orchestrator to route to security agent
     with console.status("[bold cyan]🛡️ Omni sedang menjalankan SAST audit...", spinner="bouncingBar"):
-        raw_audit = engine.generate_security_audit(code_context)
+        result = orchestrator.route_goal(
+            "Perform comprehensive security audit",
+            code_context,
+            force_agent="Security Audit Specialist"
+        )
 
-        if _is_token_limit_error(raw_audit):
-            console.print("[bold red]❌ Audit single-shot melebihi batas token model.[/bold red]")
-            console.print("[yellow]Coba audit pada subfolder lebih kecil, misalnya: omni audit src/[/yellow]")
-            raise typer.Exit(code=1)
+    if result.get("status") == "error":
+        console.print(f"[bold red]❌ Audit failed: {result.get('error')}[/bold red]")
+        raise typer.Exit(code=1)
 
-        try:
-            parsed = _extract_json_payload(raw_audit)
-        except json.JSONDecodeError:
-            debug_path = os.path.join(os.getcwd(), "OMNI_AUDIT.raw.txt")
-            with open(debug_path, "w", encoding="utf-8") as f:
-                f.write(raw_audit)
-            console.print("[bold red]❌ Response audit bukan JSON valid.[/bold red]")
-            console.print(f"[yellow]Raw response disimpan di: {debug_path}[/yellow]")
-            raise typer.Exit(code=1)
+    audit_data = result.get("result", {})
+    findings = audit_data.get("findings", [])
+    
+    # Generate summary if not present
+    if not audit_data.get("audit_summary"):
+        audit_data["audit_summary"] = _build_summary_from_findings(findings)
 
-    findings = parsed.get("findings", [])
-    if not isinstance(findings, list):
-        findings = []
-
-    generated_summary = _build_summary_from_findings(findings)
-    parsed_summary = parsed.get("audit_summary", {})
-    if not isinstance(parsed_summary, dict):
-        parsed_summary = {}
-
-    audit_summary = {
-        "total_vulnerabilities": parsed_summary.get("total_vulnerabilities", generated_summary["total_vulnerabilities"]),
-        "critical_count": parsed_summary.get("critical_count", generated_summary["critical_count"]),
-        "high_count": parsed_summary.get("high_count", generated_summary["high_count"]),
-        "medium_count": parsed_summary.get("medium_count", generated_summary["medium_count"]),
-        "low_count": parsed_summary.get("low_count", generated_summary["low_count"]),
-    }
-
-    audit_data = {
-        "audit_summary": audit_summary,
-        "findings": findings,
-    }
-
+    # Save results
     output_path = os.path.join(os.getcwd(), "OMNI_AUDIT.json")
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(audit_data, f, ensure_ascii=False, indent=2)
@@ -416,106 +555,39 @@ def audit(
     markdown_output_path = os.path.join(os.getcwd(), "OMNI_SECURITY_REPORT.md")
     export_audit_to_markdown(audit_data, markdown_output_path)
 
-    summary = audit_data.get("audit_summary", {})
-    findings = audit_data.get("findings", [])
-
-    total = summary.get("total_vulnerabilities", 0)
-    crit  = summary.get("critical_count", 0)
-    high  = summary.get("high_count", 0)
-    med   = summary.get("medium_count", 0)
-    low   = summary.get("low_count", 0)
-
-    # ── Header ──────────────────────────────────────────────────────────────
     console.print()
     console.print(Rule("[bold cyan]  OMNI SECURITY AUDIT REPORT  [/bold cyan]", style="bold cyan"))
     console.print()
+    
+    _display_audit_result(audit_data)
 
-    # ── Summary Table ───────────────────────────────────────────────────────
-    if crit > 0:
-        risk_label = Text("  ⚠  CRITICAL RISK  ", style="bold white on red")
-    elif high > 0:
-        risk_label = Text("  ▲  HIGH RISK      ", style="bold white on dark_orange")
-    elif med > 0:
-        risk_label = Text("  ◆  MODERATE RISK  ", style="bold black on yellow")
-    else:
-        risk_label = Text("  ✔  LOW RISK       ", style="bold black on green")
+    console.print(f"[bold green]✅ Audit reports saved:[/bold green]")
+    console.print(f"  • JSON: {output_path}")
+    console.print(f"  • Markdown: {markdown_output_path}\n")
 
-    summary_table = Table(
-        box=box.ROUNDED,
-        show_header=False,
-        border_style="cyan",
-        padding=(0, 2),
-        expand=False,
-    )
-    summary_table.add_column("Metric", style="dim", width=24)
-    summary_table.add_column("Value", justify="right", min_width=20)
-    summary_table.add_row("Risk Level", risk_label)
-    summary_table.add_row("Total Vulnerabilities", Text(str(total), style="bold white"))
-    summary_table.add_row("● Critical", Text(str(crit), style="bold red"))
-    summary_table.add_row("● High",     Text(str(high), style="bold dark_orange"))
-    summary_table.add_row("● Medium",   Text(str(med),  style="bold yellow"))
-    summary_table.add_row("● Low",      Text(str(low),  style="bold green"))
-    console.print(summary_table)
-    console.print()
 
-    # ── Findings Table ───────────────────────────────────────────────────────
-    _severity_badge_map = {
-        "CRITICAL": Text(" CRITICAL ", style="bold white on red"),
-        "HIGH":     Text("  HIGH    ", style="bold white on dark_orange"),
-        "MEDIUM":   Text(" MEDIUM   ", style="bold black on yellow"),
-        "LOW":      Text("  LOW     ", style="bold black on green"),
-    }
-    _severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+def _extract_json_payload(raw_text: str) -> dict:
+    """Parse JSON ketat dengan fallback ekstraksi objek JSON terbesar dari response LLM."""
+    stripped = raw_text.strip()
 
-    findings_table = Table(
-        box=box.HEAVY_HEAD,
-        show_header=True,
-        header_style="bold white on grey23",
-        show_lines=True,
-        expand=True,
-        border_style="dim",
-        padding=(0, 1),
-    )
-    findings_table.add_column("#",           width=4,  justify="right", no_wrap=True, style="dim")
-    findings_table.add_column("SEVERITY",    width=11, no_wrap=True)
-    findings_table.add_column("TYPE",        width=24, no_wrap=False, overflow="fold")
-    findings_table.add_column("LOCATION",    width=30, no_wrap=False, overflow="fold")
-    findings_table.add_column("DESCRIPTION", ratio=3,  no_wrap=False)
-    findings_table.add_column("REMEDIATION", ratio=4,  no_wrap=False)
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        stripped = "\n".join(lines).strip()
 
-    sorted_findings = sorted(
-        findings,
-        key=lambda f: _severity_order.get(str(f.get("severity", "LOW")).upper(), 99)
-    )
-
-    if sorted_findings:
-        for idx, finding in enumerate(sorted_findings, start=1):
-            severity = str(finding.get("severity", "LOW")).upper()
-            badge = _severity_badge_map.get(severity, Text(severity, style="white"))
-
-            short_path = _truncate_path(str(finding.get("file_path", "-")), 26)
-            location   = str(finding.get("line_number_or_function", "-"))
-            loc_text   = Text()
-            loc_text.append(short_path)
-            loc_text.append("\n")
-            loc_text.append(location, style="dim")
-
-            findings_table.add_row(
-                str(idx),
-                badge,
-                str(finding.get("vulnerability_type", "-")),
-                loc_text,
-                str(finding.get("description", "-")),
-                str(finding.get("remediation_code", "-")),
-            )
-    else:
-        findings_table.add_row("-", Text("  CLEAN   ", style="bold black on green"), "No vulnerabilities found", "-", "-", "-")
-
-    console.print(findings_table)
-    console.print()
-    console.print(Rule(style="dim"))
-    console.print("[dim] Output saved → OMNI_AUDIT.json & OMNI_SECURITY_REPORT.md[/dim]")
-    console.print()
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        start_index = stripped.find("{")
+        if start_index == -1:
+            raise
+        candidate = stripped[start_index:]
+        decoder = json.JSONDecoder()
+        parsed, _ = decoder.raw_decode(candidate)
+        return parsed
 
 if __name__ == "__main__":
     app()
