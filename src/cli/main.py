@@ -435,9 +435,14 @@ def commit():
         console.print(f"[bold red]❌ Gagal menjalankan Git: {str(e)}[/bold red]")
         raise typer.Exit()
 
+    # Ambil daftar file yang berubah agar model tidak terkunci pada satu bagian diff saja
+    name_status_args = ["git", "diff", "--cached", "--name-status"] if is_staged else ["git", "diff", "--name-status"]
+    changed_files = subprocess.run(name_status_args, capture_output=True, text=True).stdout.strip()
+
     # 2. Siapkan Persona Khusus untuk Commit
     sys_prompt = (
-        "Kamu adalah Senior AI Engineer. Buat 1 pesan commit berdasarkan git diff ini. "
+        "Kamu adalah Senior AI Engineer. Buat 1 pesan commit berdasarkan daftar file berubah dan git diff ini. "
+        "Wajib menangkap perubahan paling penting secara keseluruhan, bukan hanya 1 file yang kebetulan muncul lebih dulu. "
         "WAJIB gunakan format EXACTLY seperti ini: 'Tipe: Pesan komit dengan huruf kapital di awal'. "
         "Contoh valid: 'Feat: Implement auto-commit command', 'Fix: Resolve dependency bug'. "
         "Pilihan Tipe HANYA: Feat, Fix, Chore, Refactor, Docs (Harus diawali huruf Kapital). "
@@ -447,11 +452,19 @@ def commit():
         "ALWAYS write the final commit message in English, following the Conventional Commits standard, regardless of the language used in the code or git diff."
     )
 
-    # Batasi teks diff agar tidak terlalu panjang (hemat token & waktu)
-    diff_limit = diff_text[:5000]
+    # Batasi teks diff agar tidak terlalu panjang (hemat token & waktu), tetapi ambil dua sisi
+    # agar konteks tidak bias ke bagian awal saja.
+    head = diff_text[:3000]
+    tail = diff_text[-2000:] if len(diff_text) > 3000 else ""
+    diff_limit = f"{head}\n\n--- DIFF TAIL ---\n{tail}" if tail else head
+
+    commit_prompt = (
+        f"Changed Files (name-status):\n{changed_files or '-'}\n\n"
+        f"Git Diff:\n{diff_limit}"
+    )
 
     with console.status("[bold cyan]🧠 Omni sedang menganalisis perubahan kodemu...", spinner="dots"):
-        commit_msg = engine.generate_response(f"Git Diff:\n{diff_limit}", system_instruction=sys_prompt).strip()
+        commit_msg = engine.generate_response(commit_prompt, system_instruction=sys_prompt).strip()
     
     # 3. Tampilkan Hasil dan Minta Persetujuan (The Interactive Vibe)
     console.print(f"\n[bold green]✨ Saran Pesan Commit:[/bold green]")
