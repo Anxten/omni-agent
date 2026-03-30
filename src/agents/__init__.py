@@ -7,10 +7,12 @@ from src.agents.base_agent import SpecialistAgent
 from src.agents.security_agent import SecurityAuditAgent
 from src.agents.docs_agent import DocumentationAgent
 from src.agents.codegen_agent import CodeGeneratorAgent
+from src.agents.academic_agent import AcademicAgent
 
 __all__ = [
     "SpecialistAgent",
     "SecurityAuditAgent",
     "DocumentationAgent",
     "CodeGeneratorAgent",
+    "AcademicAgent",
 ]

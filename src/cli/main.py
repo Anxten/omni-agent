@@ -149,7 +149,12 @@ def execute(
 
     # Route through orchestrator
     with console.status("[bold cyan]🧠 Omni Orchestrator routing to specialist...", spinner="dots"):
-        result = orchestrator.route_goal(goal, code_context, force_agent=agent)
+        result = orchestrator.route_goal(
+            goal,
+            code_context,
+            force_agent=agent,
+            context_path=context,
+        )
 
     console.print()
     
@@ -533,7 +538,8 @@ def audit(
         result = orchestrator.route_goal(
             "Perform comprehensive security audit",
             code_context,
-            force_agent="Security Audit Specialist"
+            force_agent="Security Audit Specialist",
+            context_path=path,
         )
 
     if result.get("status") == "error":
