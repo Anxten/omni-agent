@@ -572,6 +572,52 @@ def audit(
     console.print(f"  • Markdown: {markdown_output_path}\n")
 
 
+@app.command()
+def study(
+    path: str = typer.Argument(
+        ".",
+        help="Path folder/file materi kuliah (PDF/TXT/MD) yang ingin dianalisis."
+    ),
+    goal: str = typer.Option(
+        "Analyze these study materials and produce a high-yield study guide.",
+        "--goal",
+        "-g",
+        help="Custom objective for the Academic Strategist."
+    ),
+):
+    """Alias akademik: force-route ke Academic Strategist, tampilkan output, dan simpan OMNI_STUDY_GUIDE.md."""
+    if not os.path.exists(path):
+        console.print(f"[bold red]❌ Path tidak ditemukan: {path}[/bold red]")
+        raise typer.Exit(code=1)
+
+    console.print(f"[dim]Mengumpulkan materi pembelajaran dari: {path}...[/dim]")
+    with console.status("[bold cyan]🎓 Academic Strategist sedang menyusun study guide...", spinner="bouncingBar"):
+        result = orchestrator.route_goal(
+            goal,
+            "",
+            force_agent="Academic Strategist",
+            context_path=path,
+        )
+
+    if result.get("status") == "error":
+        console.print(f"[bold red]❌ Study generation failed: {result.get('error')}[/bold red]")
+        raise typer.Exit(code=1)
+
+    markdown_output = str(result.get("markdown", "")).strip()
+    if not markdown_output:
+        console.print("[bold red]❌ Academic Strategist tidak mengembalikan konten study guide.[/bold red]")
+        raise typer.Exit(code=1)
+
+    output_path = os.path.join(os.getcwd(), "OMNI_STUDY_GUIDE.md")
+    with open(output_path, "w", encoding="utf-8") as file:
+        file.write(markdown_output + "\n")
+
+    console.print()
+    console.print(Rule("[bold cyan]  OMNI STUDY GUIDE  [/bold cyan]", style="bold cyan"))
+    console.print(Markdown(markdown_output))
+    console.print(f"\n[bold green]✅ Study guide saved to: {output_path}[/bold green]\n")
+
+
 def _extract_json_payload(raw_text: str) -> dict:
     """Parse JSON ketat dengan fallback ekstraksi objek JSON terbesar dari response LLM."""
     stripped = raw_text.strip()
