@@ -1,5 +1,27 @@
 # Product Requirement Document (PRD): Project Omni - Local Agentic CLI
 
+## 0. Current State (April 2026)
+Project Omni has evolved from a single-purpose CLI into a multi-agent orchestrator platform.
+
+Active user commands:
+1. `omni agents`
+2. `omni execute`
+3. `omni ask`
+4. `omni chat`
+5. `omni audit`
+6. `omni doc`
+7. `omni study`
+8. `omni pitch`
+9. `omni invest`
+10. `omni commit`
+
+Core architecture updates:
+- Specialist-agent orchestration in `src/core/orchestrator.py`.
+- Multiple specialist agents in `src/agents/` (Security, Documentation, Code, Academic, Sales, Finance).
+- Context ingestion now supports both local files/directories and live URLs via `src/utils/web_scraper.py`.
+
+Note: Sections below preserve initial PRD baseline (MVP) for historical tracking.
+
 ## 1. Visi Produk
 Project Omni adalah jembatan otonom (Zero-Cost Local Agent) yang menghubungkan *local codebase* dengan *Google Gemini 1.5 Flash API*. Tujuannya adalah mengeliminasi proses *copy-paste* manual ke antarmuka web, memungkinkan *developer* untuk melakukan "vibe coding" langsung dari terminal Linux/VSCode dengan konteks repositori yang utuh.
 

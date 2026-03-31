@@ -13,6 +13,13 @@ Specify how the agent should behave (LLM persona and constraints).
 ### 3. Register with Orchestrator
 Add agent to the orchestrator's agent list.
 
+### 4. Support URL + Local Context (Recommended)
+For new specialist agents, make execution URL-aware:
+- If input starts with `http://` or `https://`, use `src.utils.web_scraper.scrape_url_to_markdown`.
+- Otherwise use local single-shot reader (`read_codebase_for_audit_single_batch`) for file/folder ingestion.
+
+This keeps behavior consistent with `execute`, `study`, `pitch`, and `invest` commands.
+
 ## Example 1: Performance Optimizer Agent
 
 Let's create an agent that analyzes code for performance issues.

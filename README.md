@@ -11,6 +11,9 @@ Omni Agent is a local-first AI CLI with an orchestrator that routes tasks to spe
 - Context-aware coding assistant (`omni ask`, `omni chat`)
 - Automated security audit (`omni audit`)
 - Academic study guide generation from PDFs/text (`omni study`)
+- B2B sales pitch generation from technical reports (`omni pitch`)
+- DeFi investment thesis generation (`omni invest`)
+- URL-native context ingestion (`http://` / `https://`)
 - Commit message generation from git diff (`omni commit`)
 
 ## Installation
@@ -64,9 +67,26 @@ General task execution with auto-routing:
 omni execute "Analyze this repository and suggest improvements" --context .
 ```
 
+General task execution with URL context:
+```bash
+omni execute "Summarize key security risks" --context https://example.com/report
+```
+
 Academic study mode (reads PDFs/texts, outputs terminal + file):
 ```bash
 omni study ./study-materials
+```
+
+Sales outreach mode (from local report or URL):
+```bash
+omni pitch ./OMNI_SECURITY_REPORT.md
+omni pitch https://example.com/security-report
+```
+
+DeFi investment mode (from local docs or URL):
+```bash
+omni invest ./docs/tokenomics
+omni invest https://example.com/whitepaper
 ```
 
 Ask with optional context:
@@ -99,6 +119,8 @@ omni audit .
 - `OMNI_SECURITY_REPORT.md`
 - `OMNI_DOCS.md`
 - `OMNI_STUDY_GUIDE.md`
+- `OMNI_SALES_PITCH.txt`
+- `OMNI_INVESTMENT_THESIS.md`
 
 ## Optional Developer Reference
 If you want to create custom specialist agents, read:
@@ -108,3 +130,4 @@ If you want to create custom specialist agents, read:
 - Missing API key: make sure `.env` exists and `GEMINI_API_KEY` is set.
 - `omni` command not found: use `python -m src.cli.main ...`.
 - Audit context too large: audit a smaller folder, for example `omni audit src/`.
+- URL context fetch failed: check URL accessibility and internet/SSL configuration.
