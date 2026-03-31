@@ -29,7 +29,12 @@ class SalesAgent(SpecialistAgent):
                 "security audit report and generate: 1. A highly converting, short Cold Email to "
                 "the CTO/CEO highlighting the financial risk of the found vulnerabilities. 2. A "
                 "concise, punchy LinkedIn DM. Use psychological leverage and professional tone. "
-                "NEVER hallucinate vulnerabilities; only use what is in the report."
+                "NEVER hallucinate vulnerabilities; only use what is in the report. "
+                "STRICT OUTPUT RULES: "
+                "1) Cold Email must be between 120 and 150 words (inclusive). "
+                "2) LinkedIn DM must be concise and under 60 words. "
+                "3) If evidence is missing, explicitly state that the report does not provide that evidence "
+                "instead of fabricating details."
             ),
             capabilities=["pitch", "email", "sales", "outreach", "cold dm"],
         )

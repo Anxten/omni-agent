@@ -667,10 +667,38 @@ def pitch(
         "-g",
         help="Custom objective for the B2B Sales Closer."
     ),
+    company: str = typer.Option(
+        "Target Company",
+        "--company",
+        help="Target company name for personalization."
+    ),
+    persona: str = typer.Option(
+        "cto",
+        "--persona",
+        help="Target role (cto, ceo, founder, ciso, security-lead)."
+    ),
+    tone: str = typer.Option(
+        "professional",
+        "--tone",
+        help="Desired tone (professional, assertive, aggressive)."
+    ),
 ):
     """Alias sales: force-route ke B2B Sales Closer, tampilkan pitch, dan simpan OMNI_SALES_PITCH.txt."""
     if not _is_url(path) and not os.path.exists(path):
         console.print(f"[bold red]❌ Path not found: {path}[/bold red]")
+        raise typer.Exit(code=1)
+
+    allowed_personas = {"cto", "ceo", "founder", "ciso", "security-lead"}
+    normalized_persona = persona.strip().lower()
+    if normalized_persona not in allowed_personas:
+        console.print(
+            "[bold red]❌ Invalid --persona. Use one of: cto, ceo, founder, ciso, security-lead[/bold red]"
+        )
+        raise typer.Exit(code=1)
+
+    normalized_tone = tone.strip().lower()
+    if normalized_tone not in {"professional", "assertive", "aggressive"}:
+        console.print("[bold red]❌ Invalid --tone. Use one of: professional, assertive, aggressive[/bold red]")
         raise typer.Exit(code=1)
 
     console.print(f"[dim]Reading security report from: {path}...[/dim]")
@@ -682,8 +710,15 @@ def pitch(
             raise typer.Exit(code=1)
 
     with console.status("[bold cyan]💼 B2B Sales Closer crafting your outreach...", spinner="dots"):
+        effective_goal = (
+            f"{goal}\n"
+            f"Target Company: {company}\n"
+            f"Target Persona: {normalized_persona.upper()}\n"
+            f"Desired Tone: {normalized_tone}\n"
+            "Hard Constraint: Cold Email must be 120-150 words."
+        )
         result = orchestrator.route_goal(
-            goal,
+            effective_goal,
             preloaded_context,
             force_agent="B2B Sales Closer",
             context_path=None if _is_url(path) else path,

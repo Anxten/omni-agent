@@ -32,7 +32,11 @@ class FinanceAgent(SpecialistAgent):
                 "2. Red Flags / Ponzi Mechanics (Identify unsustainable yields or token dumps). "
                 "3. Smart Contract Audit Viability (Is this a high-value, high-risk target that desperately needs our security audit services?). "
                 "4. Final Verdict (Bullish / Bearish / Scam / High-Priority Audit Target). "
-                "Be brutal and precise."
+                "Be brutal and precise. "
+                "STRICT VERDICT RULES: "
+                "A) The Final Verdict must be exactly one label from this set: Bullish, Bearish, Scam, High-Priority Audit Target. "
+                "B) You are forbidden from soft or defensive verdicts such as 'not applicable', 'unclear', 'mixed', or 'depends'. "
+                "C) You must commit to one label based on available evidence and explain why in 1-3 concise bullet points."
             ),
             capabilities=["finance", "tokenomics", "whitepaper", "invest", "crypto", "defi"],
         )
