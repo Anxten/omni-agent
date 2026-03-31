@@ -9,6 +9,7 @@ from src.agents.docs_agent import DocumentationAgent
 from src.agents.codegen_agent import CodeGeneratorAgent
 from src.agents.academic_agent import AcademicAgent
 from src.agents.sales_agent import SalesAgent
+from src.agents.finance_agent import FinanceAgent
 
 __all__ = [
     "SpecialistAgent",
@@ -17,4 +18,5 @@ __all__ = [
     "CodeGeneratorAgent",
     "AcademicAgent",
     "SalesAgent",
+    "FinanceAgent",
 ]

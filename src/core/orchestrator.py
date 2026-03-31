@@ -10,6 +10,7 @@ from src.agents.docs_agent import DocumentationAgent
 from src.agents.codegen_agent import CodeGeneratorAgent
 from src.agents.academic_agent import AcademicAgent
 from src.agents.sales_agent import SalesAgent
+from src.agents.finance_agent import FinanceAgent
 
 
 class AgentOrchestrator:
@@ -26,6 +27,7 @@ class AgentOrchestrator:
             CodeGeneratorAgent(),
             AcademicAgent(),
             SalesAgent(),
+            FinanceAgent(),
         ]
         self.goal_history: List[Dict[str, Any]] = []
 

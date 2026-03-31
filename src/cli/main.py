@@ -681,6 +681,52 @@ def pitch(
     console.print(f"\n[bold green]✅ Sales pitch saved to: {output_path}[/bold green]\n")
 
 
+@app.command()
+def invest(
+    path: str = typer.Argument(
+        ...,
+        help="Path to whitepaper/tokenomics/financial report file or directory."
+    ),
+    goal: str = typer.Option(
+        "Analyze this DeFi project and produce a structured investment thesis.",
+        "--goal",
+        "-g",
+        help="Custom objective for the DeFi Financial Analyst."
+    ),
+):
+    """Alias finance: force-route to DeFi Financial Analyst, print markdown, and save OMNI_INVESTMENT_THESIS.md."""
+    if not os.path.exists(path):
+        console.print(f"[bold red]❌ Path not found: {path}[/bold red]")
+        raise typer.Exit(code=1)
+
+    console.print(f"[dim]Reading finance context from: {path}...[/dim]")
+    with console.status("[bold cyan]📊 DeFi Financial Analyst building thesis...", spinner="dots"):
+        result = orchestrator.route_goal(
+            goal,
+            "",
+            force_agent="DeFi Financial Analyst",
+            context_path=path,
+        )
+
+    if result.get("status") == "error":
+        console.print(f"[bold red]❌ Investment analysis failed: {result.get('error')}[/bold red]")
+        raise typer.Exit(code=1)
+
+    thesis_output = str(result.get("markdown", "")).strip()
+    if not thesis_output:
+        console.print("[bold red]❌ DeFi Financial Analyst returned empty output.[/bold red]")
+        raise typer.Exit(code=1)
+
+    output_path = os.path.join(os.getcwd(), "OMNI_INVESTMENT_THESIS.md")
+    with open(output_path, "w", encoding="utf-8") as file:
+        file.write(thesis_output + "\n")
+
+    console.print()
+    console.print(Rule("[bold cyan]  OMNI INVESTMENT THESIS  [/bold cyan]", style="bold cyan"))
+    console.print(Markdown(thesis_output))
+    console.print(f"\n[bold green]✅ Investment thesis saved to: {output_path}[/bold green]\n")
+
+
 def _extract_json_payload(raw_text: str) -> dict:
     """Parse JSON ketat dengan fallback ekstraksi objek JSON terbesar dari response LLM."""
     stripped = raw_text.strip()
