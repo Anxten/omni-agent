@@ -15,11 +15,24 @@ from rich.panel import Panel
 from src.core.llm_client import OmniEngine
 from src.core.orchestrator import AgentOrchestrator
 from src.utils.file_reader import read_context, read_codebase_for_docs, read_codebase_for_audit_single_batch
+from src.utils.web_scraper import scrape_url_to_markdown
 
 app = typer.Typer(help="⚡ Omni Orchestrator - Multi-Agent AI Platform", no_args_is_help=True)
 console = Console()
 engine = OmniEngine()
 orchestrator = AgentOrchestrator()
+
+
+def _is_url(value: str) -> bool:
+    lowered = (value or "").strip().lower()
+    return lowered.startswith("http://") or lowered.startswith("https://")
+
+
+def _resolve_context_source(source: str, local_reader) -> str:
+    """Resolve context from URL or local path using the appropriate ingestion flow."""
+    if _is_url(source):
+        return scrape_url_to_markdown(source)
+    return local_reader(source)
 
 
 def _extract_json_payload(raw_text: str) -> dict:
@@ -122,7 +135,7 @@ def execute(
     context: str = typer.Option(
         ".",
         "--context", "-c",
-        help="Path to file or directory for context (default: current directory)"
+        help="Path or URL for context (default: current directory)"
     ),
     agent: str = typer.Option(
         None,
@@ -139,9 +152,9 @@ def execute(
     console.print()
     console.print(f"[dim]📋 Goal:[/dim] {goal}")
     
-    # Gather context
+    # Gather context from URL or local path
     console.print(f"[dim]Gathering context from: {context}...[/dim]")
-    code_context = read_context(context)
+    code_context = _resolve_context_source(context, read_context)
     
     if code_context.startswith("[System Error:"):
         console.print(f"[bold red]❌ {code_context}[/bold red]")
@@ -153,7 +166,7 @@ def execute(
             goal,
             code_context,
             force_agent=agent,
-            context_path=context,
+            context_path=None if _is_url(context) else context,
         )
 
     console.print()
@@ -593,7 +606,7 @@ def audit(
 def study(
     path: str = typer.Argument(
         ".",
-        help="Path folder/file materi kuliah (PDF/TXT/MD) yang ingin dianalisis."
+        help="Path atau URL materi kuliah (PDF/TXT/MD/Web) yang ingin dianalisis."
     ),
     goal: str = typer.Option(
         "Analyze these study materials and produce a high-yield study guide.",
@@ -603,17 +616,24 @@ def study(
     ),
 ):
     """Alias akademik: force-route ke Academic Strategist, tampilkan output, dan simpan OMNI_STUDY_GUIDE.md."""
-    if not os.path.exists(path):
+    if not _is_url(path) and not os.path.exists(path):
         console.print(f"[bold red]❌ Path tidak ditemukan: {path}[/bold red]")
         raise typer.Exit(code=1)
 
     console.print(f"[dim]Mengumpulkan materi pembelajaran dari: {path}...[/dim]")
+    preloaded_context = ""
+    if _is_url(path):
+        preloaded_context = scrape_url_to_markdown(path)
+        if preloaded_context.startswith("[System Error:"):
+            console.print(f"[bold red]❌ {preloaded_context}[/bold red]")
+            raise typer.Exit(code=1)
+
     with console.status("[bold cyan]🎓 Academic Strategist sedang menyusun study guide...", spinner="bouncingBar"):
         result = orchestrator.route_goal(
             goal,
-            "",
+            preloaded_context,
             force_agent="Academic Strategist",
-            context_path=path,
+            context_path=None if _is_url(path) else path,
         )
 
     if result.get("status") == "error":
@@ -639,7 +659,7 @@ def study(
 def pitch(
     path: str = typer.Argument(
         ...,
-        help="Path ke file report audit yang akan diubah menjadi sales pitch."
+        help="Path atau URL report audit yang akan diubah menjadi sales pitch."
     ),
     goal: str = typer.Option(
         "Generate a high-converting cold email and LinkedIn DM from this audit report.",
@@ -649,17 +669,24 @@ def pitch(
     ),
 ):
     """Alias sales: force-route ke B2B Sales Closer, tampilkan pitch, dan simpan OMNI_SALES_PITCH.txt."""
-    if not os.path.exists(path):
+    if not _is_url(path) and not os.path.exists(path):
         console.print(f"[bold red]❌ Path not found: {path}[/bold red]")
         raise typer.Exit(code=1)
 
     console.print(f"[dim]Reading security report from: {path}...[/dim]")
+    preloaded_context = ""
+    if _is_url(path):
+        preloaded_context = scrape_url_to_markdown(path)
+        if preloaded_context.startswith("[System Error:"):
+            console.print(f"[bold red]❌ {preloaded_context}[/bold red]")
+            raise typer.Exit(code=1)
+
     with console.status("[bold cyan]💼 B2B Sales Closer crafting your outreach...", spinner="dots"):
         result = orchestrator.route_goal(
             goal,
-            "",
+            preloaded_context,
             force_agent="B2B Sales Closer",
-            context_path=path,
+            context_path=None if _is_url(path) else path,
         )
 
     if result.get("status") == "error":
@@ -685,7 +712,7 @@ def pitch(
 def invest(
     path: str = typer.Argument(
         ...,
-        help="Path to whitepaper/tokenomics/financial report file or directory."
+        help="Path or URL to whitepaper/tokenomics/financial report source."
     ),
     goal: str = typer.Option(
         "Analyze this DeFi project and produce a structured investment thesis.",
@@ -695,17 +722,24 @@ def invest(
     ),
 ):
     """Alias finance: force-route to DeFi Financial Analyst, print markdown, and save OMNI_INVESTMENT_THESIS.md."""
-    if not os.path.exists(path):
+    if not _is_url(path) and not os.path.exists(path):
         console.print(f"[bold red]❌ Path not found: {path}[/bold red]")
         raise typer.Exit(code=1)
 
     console.print(f"[dim]Reading finance context from: {path}...[/dim]")
+    preloaded_context = ""
+    if _is_url(path):
+        preloaded_context = scrape_url_to_markdown(path)
+        if preloaded_context.startswith("[System Error:"):
+            console.print(f"[bold red]❌ {preloaded_context}[/bold red]")
+            raise typer.Exit(code=1)
+
     with console.status("[bold cyan]📊 DeFi Financial Analyst building thesis...", spinner="dots"):
         result = orchestrator.route_goal(
             goal,
-            "",
+            preloaded_context,
             force_agent="DeFi Financial Analyst",
-            context_path=path,
+            context_path=None if _is_url(path) else path,
         )
 
     if result.get("status") == "error":
