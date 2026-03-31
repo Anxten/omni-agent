@@ -174,6 +174,10 @@ def execute(
         console.print(Markdown(result["documentation"]))
     elif "generated_code" in result:  # Code generation result
         console.print(Markdown(result["generated_code"]))
+    elif "markdown" in result:  # Academic result
+        console.print(Markdown(result["markdown"]))
+    elif "pitch" in result:  # Sales result
+        console.print(Markdown(result["pitch"]))
 
     # Save output if requested
     if output:
@@ -629,6 +633,52 @@ def study(
     console.print(Rule("[bold cyan]  OMNI STUDY GUIDE  [/bold cyan]", style="bold cyan"))
     console.print(Markdown(markdown_output))
     console.print(f"\n[bold green]✅ Study guide saved to: {output_path}[/bold green]\n")
+
+
+@app.command()
+def pitch(
+    path: str = typer.Argument(
+        ...,
+        help="Path ke file report audit yang akan diubah menjadi sales pitch."
+    ),
+    goal: str = typer.Option(
+        "Generate a high-converting cold email and LinkedIn DM from this audit report.",
+        "--goal",
+        "-g",
+        help="Custom objective for the B2B Sales Closer."
+    ),
+):
+    """Alias sales: force-route ke B2B Sales Closer, tampilkan pitch, dan simpan OMNI_SALES_PITCH.txt."""
+    if not os.path.exists(path):
+        console.print(f"[bold red]❌ Path not found: {path}[/bold red]")
+        raise typer.Exit(code=1)
+
+    console.print(f"[dim]Reading security report from: {path}...[/dim]")
+    with console.status("[bold cyan]💼 B2B Sales Closer crafting your outreach...", spinner="dots"):
+        result = orchestrator.route_goal(
+            goal,
+            "",
+            force_agent="B2B Sales Closer",
+            context_path=path,
+        )
+
+    if result.get("status") == "error":
+        console.print(f"[bold red]❌ Pitch generation failed: {result.get('error')}[/bold red]")
+        raise typer.Exit(code=1)
+
+    pitch_output = str(result.get("pitch", "")).strip()
+    if not pitch_output:
+        console.print("[bold red]❌ B2B Sales Closer returned empty pitch output.[/bold red]")
+        raise typer.Exit(code=1)
+
+    output_path = os.path.join(os.getcwd(), "OMNI_SALES_PITCH.txt")
+    with open(output_path, "w", encoding="utf-8") as file:
+        file.write(pitch_output + "\n")
+
+    console.print()
+    console.print(Rule("[bold cyan]  OMNI SALES PITCH  [/bold cyan]", style="bold cyan"))
+    console.print(Markdown(pitch_output))
+    console.print(f"\n[bold green]✅ Sales pitch saved to: {output_path}[/bold green]\n")
 
 
 def _extract_json_payload(raw_text: str) -> dict:
