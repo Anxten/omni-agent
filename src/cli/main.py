@@ -181,16 +181,41 @@ def _build_local_commit_message(changed_files: str, diff_text: str) -> tuple[str
         confidence = min(1.0, (best_score + max(best_score - second_score, 0)) / 10)
 
     subject = _classify_commit_subject(paths, best_type)
+
+    def _derive_scope(paths_list: list[str]) -> str:
+        if not paths_list:
+            return "repo"
+        for p in paths_list:
+            if not p:
+                continue
+            parts = p.replace('\\\\', '/').split('/')
+            # prefer second segment when path starts with src
+            if parts[0] == 'src' and len(parts) > 1:
+                candidate = parts[1]
+            else:
+                candidate = parts[0]
+
+            # sanitize
+            candidate = ''.join(ch.lower() if ch.isalnum() or ch in ('-', '_') else '-' for ch in candidate)
+            candidate = candidate.strip('-') or 'repo'
+            return candidate
+
+    # map commit type to imperative description
     if best_type == "Docs":
-        message = f"Docs: Update {subject}"
+        desc = f"update {subject}"
     elif best_type == "Chore":
-        message = f"Chore: Update {subject}"
+        desc = f"update {subject}"
     elif best_type == "Fix":
-        message = f"Fix: Improve {subject}"
+        desc = f"fix {subject}"
     elif best_type == "Feat":
-        message = f"Feat: Add {subject}"
+        desc = f"add {subject}"
     else:
-        message = f"Refactor: Simplify {subject}"
+        desc = f"refactor {subject}"
+
+    desc = desc.lower()
+    scope = _derive_scope(paths)
+    type_lower = best_type.lower()
+    message = f"{type_lower}({scope}): {desc}"
 
     return message, confidence, best_type
 
@@ -630,15 +655,14 @@ def commit():
 
     # 2. Siapkan Persona Khusus untuk Commit
     sys_prompt = (
-        "Kamu adalah Senior AI Engineer. Buat 1 pesan commit berdasarkan daftar file berubah dan git diff ini. "
-        "Wajib menangkap perubahan paling penting secara keseluruhan, bukan hanya 1 file yang kebetulan muncul lebih dulu. "
-        "WAJIB gunakan format EXACTLY seperti ini: 'Tipe: Pesan komit dengan huruf kapital di awal'. "
-        "Contoh valid: 'Feat: Implement auto-commit command', 'Fix: Resolve dependency bug'. "
-        "Pilihan Tipe HANYA: Feat, Fix, Chore, Refactor, Docs (Harus diawali huruf Kapital). "
-        "JANGAN gunakan scope dalam kurung seperti feat(cli):. "
-        "HANYA berikan 1 baris pesan judul (Title) saja. JANGAN berikan deskripsi panjang di bawahnya. "
-        "TANPA markdown, TANPA backtick, TANPA penjelasan. "
-        "ALWAYS write the final commit message in English, following the Conventional Commits standard, regardless of the language used in the code or git diff."
+        "You are a Senior AI Engineer. Produce exactly ONE commit header line following the Conventional Commits specification:"
+        " Format: `type(scope): description` (single line only)."
+        " Allowed types (lowercase only): feat, fix, docs, style, refactor, perf, test, chore." 
+        " Scope is required and must be a short noun (e.g., api, core, cli, docs)."
+        " Description must be in English, imperative mood, lower-case, and under ~50 chars."
+        " Do NOT include body, footer, markdown, code fences, or explanations — only the one-line header."
+        " If unsure about scope, infer it from changed file paths (e.g., src/core -> core)."
+        "Always produce the header exactly; no surrounding quotes."
     )
 
     # Batasi teks diff agar tidak terlalu panjang (hemat token & waktu), tetapi ambil dua sisi

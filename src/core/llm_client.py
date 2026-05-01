@@ -144,36 +144,36 @@ class OmniEngine:
                         "model": model_name,
                         "messages": [{"role": "user", "content": prompt}],
                     }
-                        start = time.perf_counter()
-                        r = requests.post(hf_url, headers=headers, json=payload, timeout=30)
-                        latency = (time.perf_counter() - start) * 1000.0
-                        if r.status_code == 200:
-                            resp = r.json()
-                            choices = resp.get("choices") if isinstance(resp, dict) else None
-                            if choices and isinstance(choices, list):
-                                message = choices[0].get("message", {}) if choices else {}
-                                out = message.get("content")
-                                if out:
-                                    _record_telemetry("huggingface", r.status_code, latency, {"model": model_name})
-                                    return str(out)
-                            # Fallback to older HF formats if the proxy returns them
-                            if isinstance(resp, list) and len(resp) > 0:
-                                out = resp[0].get("generated_text") if isinstance(resp[0], dict) else str(resp[0])
-                            elif isinstance(resp, dict) and "generated_text" in resp:
-                                out = resp.get("generated_text")
-                            else:
-                                out = None
+                    start = time.perf_counter()
+                    r = requests.post(hf_url, headers=headers, json=payload, timeout=30)
+                    latency = (time.perf_counter() - start) * 1000.0
+                    if r.status_code == 200:
+                        resp = r.json()
+                        choices = resp.get("choices") if isinstance(resp, dict) else None
+                        if choices and isinstance(choices, list):
+                            message = choices[0].get("message", {}) if choices else {}
+                            out = message.get("content")
                             if out:
                                 _record_telemetry("huggingface", r.status_code, latency, {"model": model_name})
                                 return str(out)
+                        # Fallback to older HF formats if the proxy returns them
+                        if isinstance(resp, list) and len(resp) > 0:
+                            out = resp[0].get("generated_text") if isinstance(resp[0], dict) else str(resp[0])
+                        elif isinstance(resp, dict) and "generated_text" in resp:
+                            out = resp.get("generated_text")
+                        else:
+                            out = None
+                        if out:
+                            _record_telemetry("huggingface", r.status_code, latency, {"model": model_name})
+                            return str(out)
 
-                        _record_telemetry("huggingface", r.status_code, latency, {"model": model_name, "body": r.text[:400]})
-                        logger.warning(
-                            "Hugging Face fallback failed for model=%s: status=%s body=%s",
-                            model_name,
-                            r.status_code,
-                            r.text[:1000],
-                        )
+                    _record_telemetry("huggingface", r.status_code, latency, {"model": model_name, "body": r.text[:400]})
+                    logger.warning(
+                        "Hugging Face fallback failed for model=%s: status=%s body=%s",
+                        model_name,
+                        r.status_code,
+                        r.text[:1000],
+                    )
             except Exception:
                 logger.exception("Hugging Face fallback raised an exception")
 
