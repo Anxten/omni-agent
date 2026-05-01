@@ -1,16 +1,13 @@
 """Test --force-llm flag behavior in omni commit command."""
 import os
 import sys
-import json
-import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 # Add repo to path
 repo_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repo_root))
 
-from src.cli.main import _build_local_commit_message
+from src.cli.main import _build_local_commit_message, _get_commit_cache_path
 
 
 def test_force_llm_env_var():
@@ -71,7 +68,19 @@ def test_heuristic_formatting():
     print(f"  - Confidence: {confidence:.2f}")
 
 
+def test_user_level_cache_path():
+    """Verify commit cache is stored under the user's cache directory."""
+    cache_path = _get_commit_cache_path()
+
+    assert cache_path.as_posix().endswith("/.cache/omni/commit_cache.json"), cache_path
+    assert cache_path.parent.name == "omni", cache_path
+    assert cache_path.parent.parent.name == ".cache", cache_path
+
+    print(f"✓ User-level cache path verified: {cache_path}")
+
+
 if __name__ == "__main__":
     test_force_llm_env_var()
     test_heuristic_formatting()
+    test_user_level_cache_path()
     print("\n✓ All --force-llm logic tests passed!")

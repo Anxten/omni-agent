@@ -25,8 +25,11 @@ console = Console()
 # Lazy initialization - only created when needed
 _engine = None
 _orchestrator = None
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-COMMIT_CACHE_PATH = PROJECT_ROOT / ".omni" / "commit_cache.json"
+
+
+def _get_commit_cache_path() -> Path:
+    """Return the user-level cache path for commit suggestions."""
+    return Path.home() / ".cache" / "omni" / "commit_cache.json"
 
 def get_engine():
     """Get or create OmniEngine lazily to avoid unnecessary initialization."""
@@ -45,11 +48,12 @@ def get_orchestrator():
 
 def _load_commit_cache() -> dict:
     """Load cached commit messages keyed by diff signature."""
-    if not COMMIT_CACHE_PATH.exists():
+    commit_cache_path = _get_commit_cache_path()
+    if not commit_cache_path.exists():
         return {}
 
     try:
-        with open(COMMIT_CACHE_PATH, "r", encoding="utf-8") as cache_file:
+        with open(commit_cache_path, "r", encoding="utf-8") as cache_file:
             payload = json.load(cache_file)
             return payload if isinstance(payload, dict) else {}
     except Exception:
@@ -59,8 +63,9 @@ def _load_commit_cache() -> dict:
 def _save_commit_cache(cache: dict) -> None:
     """Persist commit cache locally."""
     try:
-        COMMIT_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(COMMIT_CACHE_PATH, "w", encoding="utf-8") as cache_file:
+        commit_cache_path = _get_commit_cache_path()
+        commit_cache_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(commit_cache_path, "w", encoding="utf-8") as cache_file:
             json.dump(cache, cache_file, ensure_ascii=False, indent=2)
     except Exception:
         pass
