@@ -21,4 +21,7 @@ OMNI_STUDY_GUIDE.md
 OMNI_*
 targets/
 
+# Local telemetry
+omni.log
+
 .github/
