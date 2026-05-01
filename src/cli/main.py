@@ -61,8 +61,12 @@ def _load_commit_cache() -> dict:
 
 
 def _save_commit_cache(cache: dict) -> None:
-    """Persist commit cache locally."""
+    """Persist commit cache locally (lazy init: only writes if cache has entries)."""
     try:
+        # Only create file and directory if cache is not empty
+        if not cache:
+            return
+        
         commit_cache_path = _get_commit_cache_path()
         commit_cache_path.parent.mkdir(parents=True, exist_ok=True)
         with open(commit_cache_path, "w", encoding="utf-8") as cache_file:
@@ -737,7 +741,6 @@ def commit(
             "saved_at": datetime.now(timezone.utc).isoformat(),
             "type": heuristic_type,
         }
-        _save_commit_cache(commit_cache)
     
     # 3. Tampilkan Hasil dan Minta Persetujuan (The Interactive Vibe)
     console.print(f"\n[bold green]✨ Saran Pesan Commit:[/bold green]")
@@ -757,6 +760,9 @@ def commit(
             
         subprocess.run(["git", "commit", "-m", commit_msg])
         console.print("[bold green]✅ Kode berhasil di-commit![/bold green]")
+        
+        # Only save cache after successful commit (lazy init)
+        _save_commit_cache(commit_cache)
 
         if Confirm.ask("Langsung push ke origin main?"):
             console.print("[dim]Mendorong ke GitHub...[/dim]")
