@@ -16,6 +16,7 @@ __pycache__/
 # IDEs
 .vscode/
 .idea/materi_tes/
+.omni/
 OMNI_STUDY_GUIDE.md
 OMNI_*
 targets/

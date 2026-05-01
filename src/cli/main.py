@@ -1,8 +1,10 @@
 import typer
 import subprocess
+import hashlib
 import os
 import json
 from datetime import datetime
+from pathlib import Path
 from rich import box
 from rich.console import Console
 from rich.markdown import Markdown
@@ -23,6 +25,8 @@ console = Console()
 # Lazy initialization - only created when needed
 _engine = None
 _orchestrator = None
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+COMMIT_CACHE_PATH = PROJECT_ROOT / ".omni" / "commit_cache.json"
 
 def get_engine():
     """Get or create OmniEngine lazily to avoid unnecessary initialization."""
@@ -37,6 +41,158 @@ def get_orchestrator():
     if _orchestrator is None:
         _orchestrator = AgentOrchestrator()
     return _orchestrator
+
+
+def _load_commit_cache() -> dict:
+    """Load cached commit messages keyed by diff signature."""
+    if not COMMIT_CACHE_PATH.exists():
+        return {}
+
+    try:
+        with open(COMMIT_CACHE_PATH, "r", encoding="utf-8") as cache_file:
+            payload = json.load(cache_file)
+            return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_commit_cache(cache: dict) -> None:
+    """Persist commit cache locally."""
+    try:
+        COMMIT_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(COMMIT_CACHE_PATH, "w", encoding="utf-8") as cache_file:
+            json.dump(cache, cache_file, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _build_commit_signature(diff_text: str, changed_files: str, is_staged: bool) -> str:
+    digest = hashlib.sha256()
+    digest.update(("staged" if is_staged else "unstaged").encode("utf-8"))
+    digest.update(changed_files.strip().encode("utf-8"))
+    digest.update(diff_text.strip().encode("utf-8"))
+    return digest.hexdigest()
+
+
+def _parse_changed_file_paths(changed_files: str) -> list[str]:
+    paths: list[str] = []
+    for raw_line in changed_files.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+
+        status = parts[0]
+        file_parts = parts[1:]
+
+        if status.startswith(("R", "C")) and len(file_parts) >= 2:
+            paths.extend([file_parts[0], file_parts[-1]])
+            continue
+
+        paths.append(file_parts[-1])
+
+    return paths
+
+
+def _classify_commit_subject(paths: list[str], best_type: str) -> str:
+    lowered_paths = [path.lower() for path in paths]
+
+    if any(path.endswith((".md", ".rst", ".txt")) or "/docs/" in path or path.startswith("docs/") for path in lowered_paths):
+        return "documentation"
+
+    if any(
+        path.endswith((".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".env"))
+        or path in {"package.json", "package-lock.json", "pnpm-lock.yaml", "requirements.txt", "pyproject.toml", "poetry.lock", "tsconfig.json"}
+        or path.endswith(".gitignore")
+        for path in lowered_paths
+    ):
+        return "project configuration"
+
+    if any(path.startswith("src/cli/") for path in lowered_paths):
+        return "commit workflow"
+
+    if any(path.startswith("src/core/") for path in lowered_paths):
+        return "LLM pipeline"
+
+    if any(path.startswith("src/agents/") for path in lowered_paths):
+        return "agent orchestration"
+
+    if any(path.startswith("src/") for path in lowered_paths):
+        return "codebase workflow"
+
+    if best_type == "Docs":
+        return "documentation"
+    if best_type == "Chore":
+        return "project configuration"
+    if best_type == "Fix":
+        return "bug handling"
+    if best_type == "Feat":
+        return "new capability"
+    return "codebase"
+
+
+def _build_local_commit_message(changed_files: str, diff_text: str) -> tuple[str, float, str]:
+    paths = _parse_changed_file_paths(changed_files)
+    lowered_diff = diff_text.lower()
+
+    scores = {"Feat": 0, "Fix": 0, "Chore": 0, "Refactor": 0, "Docs": 0}
+
+    for path in paths:
+        lowered_path = path.lower()
+        if lowered_path.endswith((".md", ".rst")) or "/docs/" in lowered_path or lowered_path.startswith("docs/"):
+            scores["Docs"] += 4
+        if lowered_path.endswith((".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".env")) or lowered_path in {
+            "package.json",
+            "package-lock.json",
+            "pnpm-lock.yaml",
+            "requirements.txt",
+            "pyproject.toml",
+            "poetry.lock",
+            "tsconfig.json",
+        } or lowered_path.endswith(".gitignore"):
+            scores["Chore"] += 4
+        if lowered_path.startswith("src/cli/") or lowered_path.startswith("src/core/") or lowered_path.startswith("src/agents/"):
+            scores["Refactor"] += 1
+            scores["Feat"] += 1
+
+    keyword_groups = {
+        "Refactor": ["refactor", "cleanup", "clean up", "simplify", "simplify", "centralize", "lazy", "cache", "optimize", "consolidate"],
+        "Fix": ["fix", "bug", "error", "fail", "prevent", "guard", "validate", "handle", "edge case", "exception"],
+        "Feat": ["add", "implement", "introduce", "support", "create", "enable", "feature"],
+        "Chore": ["config", "dependency", "dependencies", "setup", "version", "lockfile", "ignore"],
+        "Docs": ["doc", "docs", "readme", "guide", "documentation"],
+    }
+
+    for commit_type, keywords in keyword_groups.items():
+        for keyword in keywords:
+            if keyword in lowered_diff:
+                scores[commit_type] += 2 if commit_type != "Refactor" else 3
+
+    best_type = max(scores, key=scores.get)
+    best_score = scores[best_type]
+    sorted_scores = sorted(scores.values(), reverse=True)
+    second_score = sorted_scores[1] if len(sorted_scores) > 1 else 0
+
+    confidence = 0.0
+    if best_score > 0:
+        confidence = min(1.0, (best_score + max(best_score - second_score, 0)) / 10)
+
+    subject = _classify_commit_subject(paths, best_type)
+    if best_type == "Docs":
+        message = f"Docs: Update {subject}"
+    elif best_type == "Chore":
+        message = f"Chore: Update {subject}"
+    elif best_type == "Fix":
+        message = f"Fix: Improve {subject}"
+    elif best_type == "Feat":
+        message = f"Feat: Add {subject}"
+    else:
+        message = f"Refactor: Simplify {subject}"
+
+    return message, confidence, best_type
 
 
 def _is_url(value: str) -> bool:
@@ -496,8 +652,46 @@ def commit():
         f"Git Diff:\n{diff_limit}"
     )
 
-    with console.status("[bold cyan]🧠 Omni sedang menganalisis perubahan kodemu...", spinner="dots"):
-        commit_msg = get_engine().generate_response(commit_prompt, system_instruction=sys_prompt).strip()
+    signature = _build_commit_signature(diff_text, changed_files, is_staged)
+    commit_cache = _load_commit_cache()
+    cached_entry = commit_cache.get(signature)
+    cached_message = ""
+
+    if isinstance(cached_entry, dict):
+        cached_message = str(cached_entry.get("message", "")).strip()
+    elif isinstance(cached_entry, str):
+        cached_message = cached_entry.strip()
+
+    if cached_message:
+        commit_msg = cached_message
+        console.print("[dim]Cache hit: pesan commit diambil dari diff yang sama.[/dim]")
+    else:
+        heuristic_msg, confidence, heuristic_type = _build_local_commit_message(changed_files, diff_text)
+
+        if confidence >= 0.72:
+            commit_msg = heuristic_msg
+            console.print(
+                f"[dim]Heuristik lokal dipakai ({heuristic_type}, confidence {confidence:.2f}).[/dim]"
+            )
+        else:
+            console.print(
+                f"[dim]Heuristik lokal kurang yakin ({heuristic_type}, confidence {confidence:.2f}); fallback ke LLM.[/dim]"
+            )
+            with console.status("[bold cyan]🧠 Omni sedang menganalisis perubahan kodemu...", spinner="dots"):
+                commit_msg = get_engine().generate_response(commit_prompt, system_instruction=sys_prompt).strip()
+
+            if not commit_msg or commit_msg.startswith("❌") or commit_msg.lower().startswith("error"):
+                console.print("[dim]LLM fallback gagal, memakai hasil heuristik lokal.[/dim]")
+                commit_msg = heuristic_msg
+
+        commit_cache[signature] = {
+            "message": commit_msg,
+            "mode": "cache" if cached_message else ("heuristic" if confidence >= 0.72 else "llm"),
+            "confidence": round(confidence, 2),
+            "saved_at": datetime.utcnow().isoformat(),
+            "type": heuristic_type,
+        }
+        _save_commit_cache(commit_cache)
     
     # 3. Tampilkan Hasil dan Minta Persetujuan (The Interactive Vibe)
     console.print(f"\n[bold green]✨ Saran Pesan Commit:[/bold green]")
