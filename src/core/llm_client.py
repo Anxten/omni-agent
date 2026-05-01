@@ -8,11 +8,9 @@ class OmniEngine:
     """
     
     def __init__(self):
-        # Validasi API Key sebelum melakukan inisialisasi
-        settings.validate()
-        
-        # Konfigurasi library genai dengan API Key kita
-        genai.configure(api_key=settings.GEMINI_API_KEY)
+        # Centralized genai configuration (called once globally)
+        from src.core.config import settings
+        settings.configure_genai()
         
         # Kita menggunakan 2.5-flash karena gratis, cepat, dan punya context window 1M token
         self.model_name = "gemini-2.5-flash"

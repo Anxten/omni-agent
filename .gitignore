@@ -19,3 +19,5 @@ __pycache__/
 OMNI_STUDY_GUIDE.md
 OMNI_*
 targets/
+
+.github/

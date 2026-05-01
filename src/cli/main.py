@@ -19,8 +19,24 @@ from src.utils.web_scraper import scrape_url_to_markdown
 
 app = typer.Typer(help="⚡ Omni Orchestrator - Multi-Agent AI Platform", no_args_is_help=True)
 console = Console()
-engine = OmniEngine()
-orchestrator = AgentOrchestrator()
+
+# Lazy initialization - only created when needed
+_engine = None
+_orchestrator = None
+
+def get_engine():
+    """Get or create OmniEngine lazily to avoid unnecessary initialization."""
+    global _engine
+    if _engine is None:
+        _engine = OmniEngine()
+    return _engine
+
+def get_orchestrator():
+    """Get or create orchestrator lazily to avoid unnecessary agent initialization."""
+    global _orchestrator
+    if _orchestrator is None:
+        _orchestrator = AgentOrchestrator()
+    return _orchestrator
 
 
 def _is_url(value: str) -> bool:
@@ -85,7 +101,7 @@ def agents(
 ):
     """List all available specialist agents and their capabilities."""
     if agent_name:
-        details = orchestrator.get_agent_details(agent_name)
+        details = get_orchestrator().get_agent_details(agent_name)
         if not details:
             console.print(f"[bold red]❌ Agent '{agent_name}' not found[/bold red]")
             raise typer.Exit(code=1)
@@ -103,7 +119,7 @@ def agents(
         return
 
     # List all agents with summary
-    agent_list = orchestrator.list_agents()
+    agent_list = get_orchestrator().list_agents()
     console.print()
     console.print(Rule("[bold cyan]  Available Specialist Agents  [/bold cyan]", style="bold cyan"))
     console.print()
@@ -162,7 +178,7 @@ def execute(
 
     # Route through orchestrator
     with console.status("[bold cyan]🧠 Omni Orchestrator routing to specialist...", spinner="dots"):
-        result = orchestrator.route_goal(
+        result = get_orchestrator().route_goal(
             goal,
             code_context,
             force_agent=agent,
@@ -372,7 +388,7 @@ def ask(
         final_prompt = f"Konteks Codebase:\n{file_content}\n\nPertanyaan/Instruksi:\n{prompt}"
 
     with console.status("[bold cyan]🧠 Omni sedang menganalisis codebase...", spinner="bouncingBar"):
-        response = engine.generate_response(final_prompt, system_instruction=sys)
+        response = get_engine().generate_response(final_prompt, system_instruction=sys)
     
     console.print("\n")
     console.print(Markdown(response))
@@ -397,7 +413,7 @@ def chat(
     console.print("[bold green]💬 Memulai sesi obrolan dengan Omni... (Ketik 'exit' atau 'quit' untuk berhenti)[/bold green]")
 
     try:
-        chat_session = engine.start_chat_session(system_instruction=sys)
+        chat_session = get_engine().start_chat_session(system_instruction=sys)
 
         if file:
             console.print(f"[dim]Membaca konteks awal dari: {file}...[/dim]")
@@ -481,7 +497,7 @@ def commit():
     )
 
     with console.status("[bold cyan]🧠 Omni sedang menganalisis perubahan kodemu...", spinner="dots"):
-        commit_msg = engine.generate_response(commit_prompt, system_instruction=sys_prompt).strip()
+        commit_msg = get_engine().generate_response(commit_prompt, system_instruction=sys_prompt).strip()
     
     # 3. Tampilkan Hasil dan Minta Persetujuan (The Interactive Vibe)
     console.print(f"\n[bold green]✨ Saran Pesan Commit:[/bold green]")
@@ -539,7 +555,7 @@ def doc(
     )
 
     with console.status("[bold cyan]🧠 Omni sedang menyusun dokumentasi project...", spinner="bouncingBar"):
-        docs_output = engine.generate_response(prompt, system_instruction=sys_prompt)
+        docs_output = get_engine().generate_response(prompt, system_instruction=sys_prompt)
 
     output_path = os.path.join(os.getcwd(), "OMNI_DOCS.md")
     with open(output_path, "w", encoding="utf-8") as f:
@@ -565,7 +581,7 @@ def audit(
 
     # Use orchestrator to route to security agent
     with console.status("[bold cyan]🛡️ Omni sedang menjalankan SAST audit...", spinner="bouncingBar"):
-        result = orchestrator.route_goal(
+        result = get_orchestrator().route_goal(
             "Perform comprehensive security audit",
             code_context,
             force_agent="Security Audit Specialist",
@@ -629,7 +645,7 @@ def study(
             raise typer.Exit(code=1)
 
     with console.status("[bold cyan]🎓 Academic Strategist sedang menyusun study guide...", spinner="bouncingBar"):
-        result = orchestrator.route_goal(
+        result = get_orchestrator().route_goal(
             goal,
             preloaded_context,
             force_agent="Academic Strategist",
@@ -717,7 +733,7 @@ def pitch(
             f"Desired Tone: {normalized_tone}\n"
             "Hard Constraint: Cold Email must be 120-150 words."
         )
-        result = orchestrator.route_goal(
+        result = get_orchestrator().route_goal(
             effective_goal,
             preloaded_context,
             force_agent="B2B Sales Closer",
@@ -770,7 +786,7 @@ def invest(
             raise typer.Exit(code=1)
 
     with console.status("[bold cyan]📊 DeFi Financial Analyst building thesis...", spinner="dots"):
-        result = orchestrator.route_goal(
+        result = get_orchestrator().route_goal(
             goal,
             preloaded_context,
             force_agent="DeFi Financial Analyst",

@@ -39,8 +39,8 @@ class SalesAgent(SpecialistAgent):
             capabilities=["pitch", "email", "sales", "outreach", "cold dm"],
         )
         super().__init__(config)
-        settings.validate()
-        genai.configure(api_key=settings.GEMINI_API_KEY)
+        # Centralized genai configuration (idempotent)
+        settings.configure_genai()
 
     def execute(self, goal: str, context: str, **kwargs) -> Dict[str, Any]:
         """
