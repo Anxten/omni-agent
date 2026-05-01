@@ -14,6 +14,11 @@ class Settings:
     Prinsip: Fail-fast. Jika konfigurasi penting hilang, hentikan program lebih awal.
     """
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    GROQ_API_URL: str = os.getenv("GROQ_API_URL", "https://api.groq.com/openai/v1/chat/completions")
+    HF_TOKEN: str = os.getenv("HF_TOKEN", "")
+    HF_DEFAULT_MODEL: str = os.getenv("HF_DEFAULT_MODEL", "HuggingFaceH4/zephyr-7b-beta")
+    GROQ_DEFAULT_MODEL: str = os.getenv("GROQ_DEFAULT_MODEL", "llama-3.1-8b-instant")
 
     @classmethod
     def validate(cls) -> None:
@@ -32,6 +37,14 @@ class Settings:
             cls.validate()
             genai.configure(api_key=cls.GEMINI_API_KEY)
             _genai_configured = True
+
+    @classmethod
+    def has_groq(cls) -> bool:
+        return bool(cls.GROQ_API_KEY and cls.GROQ_API_KEY.strip())
+
+    @classmethod
+    def has_hf(cls) -> bool:
+        return bool(cls.HF_TOKEN and cls.HF_TOKEN.strip())
 
 # Instansiasi objek global untuk dipakai di file lain
 settings = Settings()

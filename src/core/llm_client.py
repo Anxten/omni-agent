@@ -1,5 +1,12 @@
+import logging
+
 import google.generativeai as genai
+import requests
+
 from src.core.config import settings
+
+
+logger = logging.getLogger(__name__)
 
 class OmniEngine:
     """
@@ -27,6 +34,7 @@ class OmniEngine:
         Returns:
             str: Jawaban dari Gemini AI.
         """
+        # Try primary provider (Gemini)
         try:
             if system_instruction:
                 model = genai.GenerativeModel(self.model_name, system_instruction=system_instruction)
@@ -34,10 +42,102 @@ class OmniEngine:
                 model = self.model
 
             response = model.generate_content(prompt)
-            return response.text
-            
+            text = getattr(response, "text", None)
+            if text:
+                return text
         except Exception as e:
-            return f"❌ Terjadi kesalahan saat menghubungi Gemini API: {str(e)}"
+            gemini_err = str(e)
+
+        # Secondary: Groq (HTTP fallback)
+        if settings.has_groq():
+            try:
+                groq_url = settings.GROQ_API_URL or "https://api.groq.com/openai/v1/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {settings.GROQ_API_KEY}",
+                    "Content-Type": "application/json",
+                }
+                payload = {
+                    "model": settings.GROQ_DEFAULT_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                }
+                r = requests.post(groq_url, headers=headers, json=payload, timeout=20)
+                if r.status_code == 200:
+                    data = r.json()
+                    choices = data.get("choices") if isinstance(data, dict) else None
+                    if choices and isinstance(choices, list):
+                        message = choices[0].get("message", {}) if choices else {}
+                        text = message.get("content")
+                        if text:
+                            return str(text)
+                    text = data.get("text") or data.get("output") or data.get("result")
+                    if isinstance(text, list):
+                        text = "\n".join(map(str, text))
+                    if text:
+                        return str(text)
+                logger.warning(
+                    "Groq fallback failed: status=%s body=%s",
+                    r.status_code,
+                    r.text[:1000],
+                )
+            except Exception:
+                logger.exception("Groq fallback raised an exception")
+
+        # Tertiary: Hugging Face Inference API
+        if settings.has_hf():
+            try:
+                hf_url = "https://router.huggingface.co/v1/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {settings.HF_TOKEN}",
+                    "Content-Type": "application/json",
+                }
+                candidate_models = [
+                    settings.HF_DEFAULT_MODEL,
+                    "google/gemma-2-2b-it",
+                    "Qwen/Qwen2.5-7B-Instruct-1M",
+                    "openai/gpt-oss-120b",
+                ]
+                tried_models = []
+                for model_name in candidate_models:
+                    if not model_name or model_name in tried_models:
+                        continue
+                    tried_models.append(model_name)
+                    payload = {
+                        "model": model_name,
+                        "messages": [{"role": "user", "content": prompt}],
+                    }
+                    r = requests.post(hf_url, headers=headers, json=payload, timeout=30)
+                    if r.status_code == 200:
+                        resp = r.json()
+                        choices = resp.get("choices") if isinstance(resp, dict) else None
+                        if choices and isinstance(choices, list):
+                            message = choices[0].get("message", {}) if choices else {}
+                            out = message.get("content")
+                            if out:
+                                return str(out)
+                        # Fallback to older HF formats if the proxy returns them
+                        if isinstance(resp, list) and len(resp) > 0:
+                            out = resp[0].get("generated_text") if isinstance(resp[0], dict) else str(resp[0])
+                        elif isinstance(resp, dict) and "generated_text" in resp:
+                            out = resp.get("generated_text")
+                        else:
+                            out = None
+                        if out:
+                            return str(out)
+
+                    logger.warning(
+                        "Hugging Face fallback failed for model=%s: status=%s body=%s",
+                        model_name,
+                        r.status_code,
+                        r.text[:1000],
+                    )
+            except Exception:
+                logger.exception("Hugging Face fallback raised an exception")
+
+        # If none succeeded, surface primary error if available
+        try:
+            return f"❌ All providers failed. Gemini error: {gemini_err}"
+        except NameError:
+            return "❌ All providers failed: no provider returned a result."
 
     def start_chat_session(self, system_instruction: str = None):
         """Memulai sesi obrolan interaktif yang mengingat riwayat percakapan."""

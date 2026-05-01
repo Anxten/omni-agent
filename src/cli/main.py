@@ -3,7 +3,7 @@ import subprocess
 import hashlib
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from rich import box
 from rich.console import Console
@@ -688,7 +688,7 @@ def commit():
             "message": commit_msg,
             "mode": "cache" if cached_message else ("heuristic" if confidence >= 0.72 else "llm"),
             "confidence": round(confidence, 2),
-            "saved_at": datetime.utcnow().isoformat(),
+            "saved_at": datetime.now(timezone.utc).isoformat(),
             "type": heuristic_type,
         }
         _save_commit_cache(commit_cache)
