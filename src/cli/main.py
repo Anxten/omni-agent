@@ -626,8 +626,18 @@ def chat(
         console.print(f"[bold red]❌ Terjadi kesalahan: {str(e)}[/bold red]")
 
 @app.command()
-def commit():
+def commit(
+    force_llm: bool = typer.Option(
+        False,
+        "--force-llm",
+        "-F",
+        help="Bypass cache and heuristics; always use LLM for commit message generation."
+    ),
+):
     """Membaca git diff dan men-generate pesan auto-commit berstandar profesional."""
+    # Check environment variable as well
+    use_llm_force = force_llm or os.getenv("OMNI_FORCE_LLM", "").lower() in ("true", "1", "yes")
+    
     # 1. Ambil perubahan kode (git diff)
     try:
         # Coba ambil yang sudah di-stage dulu (git add)
@@ -681,32 +691,39 @@ def commit():
     cached_entry = commit_cache.get(signature)
     cached_message = ""
 
-    if isinstance(cached_entry, dict):
-        cached_message = str(cached_entry.get("message", "")).strip()
-    elif isinstance(cached_entry, str):
-        cached_message = cached_entry.strip()
+    if not use_llm_force:
+        if isinstance(cached_entry, dict):
+            cached_message = str(cached_entry.get("message", "")).strip()
+        elif isinstance(cached_entry, str):
+            cached_message = cached_entry.strip()
 
-    if cached_message:
-        commit_msg = cached_message
-        console.print("[dim]Cache hit: pesan commit diambil dari diff yang sama.[/dim]")
+        if cached_message:
+            commit_msg = cached_message
+            console.print("[dim]Cache hit: pesan commit diambil dari diff yang sama.[/dim]")
     else:
+        if use_llm_force:
+            console.print("[dim]--force-llm active: bypassing cache and heuristics, calling LLM...[/dim]")
+        
         heuristic_msg, confidence, heuristic_type = _build_local_commit_message(changed_files, diff_text)
 
-        if confidence >= 0.72:
-            commit_msg = heuristic_msg
-            console.print(
-                f"[dim]Heuristik lokal dipakai ({heuristic_type}, confidence {confidence:.2f}).[/dim]"
-            )
-        else:
-            console.print(
-                f"[dim]Heuristik lokal kurang yakin ({heuristic_type}, confidence {confidence:.2f}); fallback ke LLM.[/dim]"
-            )
+        if use_llm_force or confidence < 0.72:
+            if use_llm_force:
+                pass  # Already printed, go straight to LLM
+            else:
+                console.print(
+                    f"[dim]Heuristik lokal kurang yakin ({heuristic_type}, confidence {confidence:.2f}); fallback ke LLM.[/dim]"
+                )
             with console.status("[bold cyan]🧠 Omni sedang menganalisis perubahan kodemu...", spinner="dots"):
                 commit_msg = get_engine().generate_response(commit_prompt, system_instruction=sys_prompt).strip()
 
             if not commit_msg or commit_msg.startswith("❌") or commit_msg.lower().startswith("error"):
                 console.print("[dim]LLM fallback gagal, memakai hasil heuristik lokal.[/dim]")
                 commit_msg = heuristic_msg
+        else:
+            commit_msg = heuristic_msg
+            console.print(
+                f"[dim]Heuristik lokal dipakai ({heuristic_type}, confidence {confidence:.2f}).[/dim]"
+            )
 
         commit_cache[signature] = {
             "message": commit_msg,
