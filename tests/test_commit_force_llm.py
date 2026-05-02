@@ -2,6 +2,7 @@
 import os
 import sys
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
 
@@ -118,9 +119,71 @@ def test_cache_lazy_init():
     print("✓ Non-empty cache written successfully (lazy init verified)")
 
 
+def test_commit_cache_miss_uses_heuristics_without_error():
+    """Verify commit() does not crash on cache miss when heuristics decide the message."""
+    from src.cli import main as cli_main
+
+    diff_output = subprocess.CompletedProcess(
+        args=["git", "diff"],
+        returncode=0,
+        stdout=(
+            "diff --git a/.env.example b/.env.example\n"
+            "index 2e855d9..ed86a11 100644\n"
+            "--- a/.env.example\n"
+            "+++ b/.env.example\n"
+            "@@ -1 +1,3 @@\n"
+            "-GEMINI_API_KEY=your_api_key_here\n"
+            "+GEMINI_API_KEY=your_api_key_here\n"
+            "+GROQ_API_KEY=your_groq_api_key_here\n"
+        ),
+        stderr="",
+    )
+
+    name_status_output = subprocess.CompletedProcess(
+        args=["git", "diff", "--name-status"],
+        returncode=0,
+        stdout="M\t.env.example\n",
+        stderr="",
+    )
+
+    def fake_run(args, capture_output=False, text=False):
+        if args == ["git", "diff", "--cached"]:
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        if args == ["git", "diff"]:
+            return diff_output
+        if args == ["git", "diff", "--name-status"]:
+            return name_status_output
+        if args == ["git", "diff", "--name-only"]:
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+
+    with patch.object(cli_main, "_load_commit_cache", return_value={}), \
+         patch.object(cli_main, "_save_commit_cache") as mock_save_cache, \
+         patch.object(cli_main, "get_engine") as mock_get_engine, \
+         patch.object(cli_main.console, "status") as mock_status, \
+         patch.object(cli_main.Confirm, "ask", return_value=False), \
+         patch.object(cli_main.subprocess, "run", side_effect=fake_run):
+        mock_get_engine.return_value.generate_response.return_value = "feat(env): add api keys"
+
+        class DummyStatus:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        mock_status.return_value = DummyStatus()
+
+        cli_main.commit(force_llm=False)
+
+    mock_save_cache.assert_not_called()
+    print("✓ Cache miss with heuristic path completed without error")
+
+
 if __name__ == "__main__":
     test_force_llm_env_var()
     test_heuristic_formatting()
     test_user_level_cache_path()
     test_cache_lazy_init()
+    test_commit_cache_miss_uses_heuristics_without_error()
     print("\n✓ All cache and commit tests passed!")
